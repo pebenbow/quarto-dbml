@@ -23,6 +23,13 @@
 --   3. Project _quarto.yml:    dbml:\n  notation: crowsfoot
 --   4. Default:                labels (text "1" / "N")
 --                             Other values: crowsfoot, uml, arrows
+--
+-- Routing resolution (highest → lowest priority):
+--   1. Block attribute:        ```{.dbml routing="rounded"}
+--   2. Document front matter:  dbml:\n  routing: rounded
+--   3. Project _quarto.yml:    dbml:\n  routing: rounded
+--   4. Default:                smooth (cubic bezier curves)
+--                             Other values: orthogonal, rounded
 
 -- ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -110,7 +117,32 @@ local function effective_notation(block)
   return nil  -- let the renderer use its default ('labels')
 end
 
-local function render_dbml(code, theme, notation)
+--- Normalise a routing value; returns 'smooth', 'orthogonal', 'rounded', or nil.
+local function normalise_routing(raw)
+  if not raw then return nil end
+  local s = pandoc.utils.stringify(raw):lower():match('^%s*(.-)%s*$')
+  if s == 'smooth' or s == 'curved' or s == 'curve' then return 'smooth' end
+  if s == 'orthogonal' or s == 'ortho' or s == 'angular' then return 'orthogonal' end
+  if s == 'rounded' or s == 'round' then return 'rounded' end
+  return nil
+end
+
+--- Document-level routing setting (set by Meta filter below; nil = use default).
+local doc_routing = nil
+
+--- Determine the effective routing style for a given code block.
+--- Returns 'smooth', 'orthogonal', 'rounded', or nil (= use renderer default).
+local function effective_routing(block)
+  local block_raw = block.attr and block.attr.attributes and block.attr.attributes['routing']
+  if block_raw ~= nil then
+    local v = normalise_routing(block_raw)
+    if v ~= nil then return v end
+  end
+  if doc_routing ~= nil then return doc_routing end
+  return nil  -- let the renderer use its default ('smooth')
+end
+
+local function render_dbml(code, theme, notation, routing)
   local script = pandoc.path.join({ script_dir(), 'dbml-render.js' })
   local args = { script }
   -- For auto HTML we pass no --theme flag (defaults to CSS vars internally).
@@ -120,6 +152,9 @@ local function render_dbml(code, theme, notation)
   end
   if notation then
     args[#args + 1] = '--notation=' .. notation
+  end
+  if routing then
+    args[#args + 1] = '--routing=' .. routing
   end
   local ok, result = pcall(pandoc.pipe, 'node', args, code)
   if ok then return result, nil end
@@ -371,6 +406,9 @@ function Meta(meta)
     if meta.dbml.notation then
       doc_notation = normalise_notation(meta.dbml.notation)
     end
+    if meta.dbml.routing then
+      doc_routing = normalise_routing(meta.dbml.routing)
+    end
   end
   return meta
 end
@@ -384,7 +422,8 @@ function CodeBlock(block)
 
   local theme      = effective_theme(block)    -- 'light', 'dark', or nil (auto)
   local show_echo  = effective_echo(block)     -- true or false
-  local notation   = effective_notation(block) -- 'crowsfoot', 'labels', or nil
+  local notation   = effective_notation(block) -- 'crowsfoot', 'labels', 'uml', 'arrows', or nil
+  local routing    = effective_routing(block)  -- 'smooth', 'orthogonal', 'rounded', or nil
 
   --- Optionally prepend the DBML source as a styled code block.
   local function with_echo(diagram_block)
@@ -403,7 +442,7 @@ function CodeBlock(block)
 
     -- When an explicit theme is set, pass it to Node (so CSS vars get the
     -- right fallback values too). Auto (nil) uses the CSS-var default path.
-    local svg, err = render_dbml(block.text, theme, notation)
+    local svg, err = render_dbml(block.text, theme, notation, routing)
     if not svg or svg == '' then
       return error_block(err or 'empty output from renderer')
     end
@@ -429,6 +468,7 @@ function CodeBlock(block)
     local png_path = tmpdir .. '/' .. stem .. '.png'
     local png_args = { script, '--theme=' .. pdf_theme, '--output-file=' .. png_path }
     if notation then png_args[#png_args + 1] = '--notation=' .. notation end
+    if routing  then png_args[#png_args + 1] = '--routing='  .. routing  end
     local png_ok, png_err = pcall(pandoc.pipe, 'node', png_args, block.text)
 
     if png_ok then
@@ -450,7 +490,7 @@ function CodeBlock(block)
     end
 
     -- Attempt 2: SVG + \includesvg (xelatex + svg LaTeX package + Inkscape)
-    local svg, svg_err = render_dbml(block.text, pdf_theme, notation)
+    local svg, svg_err = render_dbml(block.text, pdf_theme, notation, routing)
     if not svg or svg == '' then
       return error_block(svg_err or 'empty output from renderer')
     end
@@ -469,7 +509,7 @@ function CodeBlock(block)
   end
 
   -- ── Fallback ─────────────────────────────────────────────────────────────
-  local svg, err = render_dbml(block.text, theme, notation)
+  local svg, err = render_dbml(block.text, theme, notation, routing)
   if not svg or svg == '' then
     return error_block(err or 'empty output from renderer')
   end

@@ -13,6 +13,7 @@ const { Parser } = require('@dbml/core');
 //                      .svg → write raw SVG text
 const themeFlag    = (process.argv.find(a => a.startsWith('--theme='))       ?? '--theme=html').split('=')[1];
 const notationFlag = (process.argv.find(a => a.startsWith('--notation='))    ?? '--notation=labels').split('=')[1];
+const routingFlag  = (process.argv.find(a => a.startsWith('--routing='))     ?? '--routing=smooth').split('=')[1];
 const outputFile   = (process.argv.find(a => a.startsWith('--output-file=')) ?? '').slice('--output-file='.length) || null;
 
 // ─── Palettes ────────────────────────────────────────────────────────────────
@@ -198,6 +199,47 @@ function arrowMarker(x, y, relation, gapDir, color) {
   }
 }
 
+// ─── Orthogonal path builder ─────────────────────────────────────────────────
+//
+// Returns SVG path data for a two-bend connector: horizontal → vertical →
+// horizontal (the classic "elbow" used in structured ERDs).
+//
+//   radius  0  → sharp right-angle corners
+//   radius >0  → quadratic-bezier rounded corners clamped to available space
+
+function orthogonalPath(x1, y1, x2, y2, radius) {
+  const midX = (x1 + x2) / 2;
+  const dy   = y2 - y1;
+
+  // Degenerate: same row → straight horizontal line
+  if (Math.abs(dy) < 1) return `M ${x1} ${y1} H ${x2}`;
+
+  // Clamp radius so both corners fit without overlapping each other or the ends
+  const r = radius > 0
+    ? Math.max(0, Math.min(radius, Math.abs(midX - x1) - 2, Math.abs(dy) / 2 - 2))
+    : 0;
+
+  if (r <= 0) {
+    return `M ${x1} ${y1} H ${midX} V ${y2} H ${x2}`;
+  }
+
+  const sx = x2 > x1 ? 1 : -1;  // horizontal direction: +1 right, -1 left
+  const sy = dy > 0  ? 1 : -1;  // vertical direction:   +1 down,  -1 up
+
+  // Each corner is approximated with a quadratic bezier:
+  //   Q <control> <end-point>
+  // The control point is the sharp corner; the end-point is r px along the
+  // next segment — giving a smooth, evenly-radiused curve.
+  return [
+    `M ${x1} ${y1}`,
+    `H ${midX - sx * r}`,                                   // horizontal to corner 1
+    `Q ${midX} ${y1} ${midX} ${y1 + sy * r}`,              // corner 1 (H→V)
+    `V ${y2 - sy * r}`,                                     // vertical to corner 2
+    `Q ${midX} ${y2} ${midX + sx * r} ${y2}`,              // corner 2 (V→H)
+    `H ${x2}`,                                              // horizontal to target
+  ].join(' ');
+}
+
 // ─── SVG builder ─────────────────────────────────────────────────────────────
 
 function dbmlToSvg(db) {
@@ -275,7 +317,16 @@ function dbmlToSvg(db) {
     const ex2 = goRight ? p2.x : p2.x + TW;
     const cp  = Math.max(40, Math.abs(ex2 - ex1) * 0.4);
 
-    const d = `M ${ex1} ${ey1} C ${ex1+(goRight?cp:-cp)} ${ey1} ${ex2+(goRight?-cp:cp)} ${ey2} ${ex2} ${ey2}`;
+    // Compute path shape based on routing style
+    let d;
+    if (routingFlag === 'orthogonal') {
+      d = orthogonalPath(ex1, ey1, ex2, ey2, 0);
+    } else if (routingFlag === 'rounded') {
+      d = orthogonalPath(ex1, ey1, ex2, ey2, 10);
+    } else {
+      // smooth (default): cubic bezier
+      d = `M ${ex1} ${ey1} C ${ex1+(goRight?cp:-cp)} ${ey1} ${ex2+(goRight?-cp:cp)} ${ey2} ${ex2} ${ey2}`;
+    }
 
     // Flow direction: animate from the "one" end toward the "many" end.
     // The path is drawn e1→e2. If e1='*' and e2='1', the "one" end (e2) is
