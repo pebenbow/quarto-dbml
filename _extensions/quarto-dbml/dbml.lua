@@ -30,6 +30,13 @@
 --   3. Project _quarto.yml:    dbml:\n  routing: rounded
 --   4. Default:                smooth (cubic bezier curves)
 --                             Other values: orthogonal, rounded
+--
+-- Level resolution (highest → lowest priority):
+--   1. Block attribute:        ```{.dbml level="keys"}
+--   2. Document front matter:  dbml:\n  level: keys
+--   3. Project _quarto.yml:    dbml:\n  level: keys
+--   4. Default:                full (all fields shown)
+--                             Other values: keys (PK+FK only), names (header only)
 
 -- ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -142,7 +149,32 @@ local function effective_routing(block)
   return nil  -- let the renderer use its default ('smooth')
 end
 
-local function render_dbml(code, theme, notation, routing)
+--- Normalise a level value; returns 'full', 'keys', 'names', or nil.
+local function normalise_level(raw)
+  if not raw then return nil end
+  local s = pandoc.utils.stringify(raw):lower():match('^%s*(.-)%s*$')
+  if s == 'full' or s == 'all' then return 'full' end
+  if s == 'keys' or s == 'key' then return 'keys' end
+  if s == 'names' or s == 'name' or s == 'headers' or s == 'header' then return 'names' end
+  return nil
+end
+
+--- Document-level detail level setting (set by Meta filter below; nil = use default).
+local doc_level = nil
+
+--- Determine the effective detail level for a given code block.
+--- Returns 'full', 'keys', 'names', or nil (= use renderer default = 'full').
+local function effective_level(block)
+  local block_raw = block.attr and block.attr.attributes and block.attr.attributes['level']
+  if block_raw ~= nil then
+    local v = normalise_level(block_raw)
+    if v ~= nil then return v end
+  end
+  if doc_level ~= nil then return doc_level end
+  return nil
+end
+
+local function render_dbml(code, theme, notation, routing, level)
   local script = pandoc.path.join({ script_dir(), 'dbml-render.js' })
   local args = { script }
   -- For auto HTML we pass no --theme flag (defaults to CSS vars internally).
@@ -155,6 +187,9 @@ local function render_dbml(code, theme, notation, routing)
   end
   if routing then
     args[#args + 1] = '--routing=' .. routing
+  end
+  if level then
+    args[#args + 1] = '--level=' .. level
   end
   local ok, result = pcall(pandoc.pipe, 'node', args, code)
   if ok then return result, nil end
@@ -379,6 +414,51 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
   color: var(--dbml-hdr-fg, #ffffff);
   opacity: 1;
 }
+
+/* ── Detail level button ────────────────── */
+
+.dbml-diagram .dbml-detail-btn {
+  position: absolute;
+  top: 8px;
+  left: 44px;
+  z-index: 20;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--dbml-border, #c0cce4);
+  border-radius: 6px;
+  background: var(--dbml-card-bg, #ffffff);
+  color: var(--dbml-edge, #8ca0c0);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+.dbml-diagram .dbml-detail-btn:hover {
+  opacity: 1;
+}
+.dbml-diagram .dbml-detail-btn.dbml-detail-active {
+  background: var(--dbml-hdr-bg, #4361a0);
+  border-color: var(--dbml-hdr-bg, #4361a0);
+  color: var(--dbml-hdr-fg, #ffffff);
+  opacity: 1;
+}
+
+/* ── Detail level: hide field rows ─────── */
+
+/* keys mode: hide regular (non-key) field rows */
+.dbml-diagram.dbml-level-keys .dbml-field-row[data-field-type="regular"] {
+  display: none;
+}
+/* names mode: hide all field rows */
+.dbml-diagram.dbml-level-names .dbml-field-row {
+  display: none;
+}
 </style>]]
 
 local html_setup_done = false
@@ -409,6 +489,9 @@ function Meta(meta)
     if meta.dbml.routing then
       doc_routing = normalise_routing(meta.dbml.routing)
     end
+    if meta.dbml.level then
+      doc_level = normalise_level(meta.dbml.level)
+    end
   end
   return meta
 end
@@ -424,6 +507,7 @@ function CodeBlock(block)
   local show_echo  = effective_echo(block)     -- true or false
   local notation   = effective_notation(block) -- 'crowsfoot', 'labels', 'uml', 'arrows', or nil
   local routing    = effective_routing(block)  -- 'smooth', 'orthogonal', 'rounded', or nil
+  local level      = effective_level(block)    -- 'full', 'keys', 'names', or nil
 
   --- Optionally prepend the DBML source as a styled code block.
   local function with_echo(diagram_block)
@@ -442,7 +526,9 @@ function CodeBlock(block)
 
     -- When an explicit theme is set, pass it to Node (so CSS vars get the
     -- right fallback values too). Auto (nil) uses the CSS-var default path.
-    local svg, err = render_dbml(block.text, theme, notation, routing)
+    -- Level is NOT passed to the renderer for HTML — all fields are always
+    -- rendered so the browser can toggle between levels interactively.
+    local svg, err = render_dbml(block.text, theme, notation, routing, nil)
     if not svg or svg == '' then
       return error_block(err or 'empty output from renderer')
     end
@@ -450,6 +536,9 @@ function CodeBlock(block)
     -- Build wrapper class list
     local classes = 'dbml-diagram'
     if theme then classes = classes .. ' dbml-theme-' .. theme end
+    -- Always include a level class; 'full' is the default if not set
+    local eff_level = level or 'full'
+    classes = classes .. ' dbml-level-' .. eff_level
 
     return with_echo(pandoc.RawBlock('html',
       '<div class="' .. classes .. '">\n' .. svg .. '\n</div>'))
@@ -469,6 +558,7 @@ function CodeBlock(block)
     local png_args = { script, '--theme=' .. pdf_theme, '--output-file=' .. png_path }
     if notation then png_args[#png_args + 1] = '--notation=' .. notation end
     if routing  then png_args[#png_args + 1] = '--routing='  .. routing  end
+    if level    then png_args[#png_args + 1] = '--level='    .. level    end
     local png_ok, png_err = pcall(pandoc.pipe, 'node', png_args, block.text)
 
     if png_ok then
@@ -490,7 +580,7 @@ function CodeBlock(block)
     end
 
     -- Attempt 2: SVG + \includesvg (xelatex + svg LaTeX package + Inkscape)
-    local svg, svg_err = render_dbml(block.text, pdf_theme, notation, routing)
+    local svg, svg_err = render_dbml(block.text, pdf_theme, notation, routing, level)
     if not svg or svg == '' then
       return error_block(svg_err or 'empty output from renderer')
     end
@@ -509,7 +599,7 @@ function CodeBlock(block)
   end
 
   -- ── Fallback ─────────────────────────────────────────────────────────────
-  local svg, err = render_dbml(block.text, theme, notation, routing)
+  local svg, err = render_dbml(block.text, theme, notation, routing, level)
   if not svg or svg == '' then
     return error_block(err or 'empty output from renderer')
   end

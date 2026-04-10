@@ -264,6 +264,122 @@ Table posts {
 Ref: posts.user_id > users.id
 ```
 
+## Detail levels (interactive)
+
+Use the button in the top-left corner of each diagram to cycle between detail
+levels: **All** (all columns), **Key** (PK + FK columns only), **Hdr** (table
+names only).
+
+The `level=` attribute sets the *initial* level. Users can still toggle in the
+browser.
+
+```{.dbml level="full"}
+Table users {
+  id          integer   [pk, increment]
+  email       varchar   [not null, unique]
+  full_name   varchar
+  role        varchar   [default: 'customer']
+  created_at  timestamp [not null]
+}
+
+Table posts {
+  id          integer   [pk, increment]
+  user_id     integer   [not null]
+  title       varchar   [not null]
+  body        text
+  published   boolean   [default: false]
+  created_at  timestamp [default: `now()`]
+}
+
+Table comments {
+  id          integer   [pk, increment]
+  post_id     integer   [not null]
+  user_id     integer   [not null]
+  body        text      [not null]
+  created_at  timestamp [default: `now()`]
+}
+
+Ref: posts.user_id    > users.id
+Ref: comments.post_id > posts.id
+Ref: comments.user_id > users.id
+```
+
+## Keys-only initial view
+
+```{.dbml level="keys"}
+Table users {
+  id          integer   [pk, increment]
+  email       varchar   [not null, unique]
+  full_name   varchar
+  role        varchar   [default: 'customer']
+  created_at  timestamp [not null]
+}
+
+Table posts {
+  id          integer   [pk, increment]
+  user_id     integer   [not null]
+  title       varchar   [not null]
+  body        text
+  published   boolean   [default: false]
+  created_at  timestamp [default: `now()`]
+}
+
+Table comments {
+  id          integer   [pk, increment]
+  post_id     integer   [not null]
+  user_id     integer   [not null]
+  body        text      [not null]
+  created_at  timestamp [default: `now()`]
+}
+
+Ref: posts.user_id    > users.id
+Ref: comments.post_id > posts.id
+Ref: comments.user_id > users.id
+```
+
+## Names-only initial view (large schemas at a glance)
+
+```{.dbml level="names"}
+Table users {
+  id          integer   [pk, increment]
+  email       varchar   [not null, unique]
+  full_name   varchar
+  role        varchar
+  created_at  timestamp
+}
+
+Table posts {
+  id          integer   [pk, increment]
+  user_id     integer   [not null]
+  title       varchar
+  body        text
+  published   boolean
+}
+
+Table comments {
+  id          integer   [pk, increment]
+  post_id     integer   [not null]
+  user_id     integer   [not null]
+  body        text
+}
+
+Table tags {
+  id    integer [pk, increment]
+  name  varchar [not null, unique]
+}
+
+Table post_tags {
+  post_id integer [not null]
+  tag_id  integer [not null]
+}
+
+Ref: posts.user_id      > users.id
+Ref: comments.post_id   > posts.id
+Ref: comments.user_id   > users.id
+Ref: post_tags.post_id  > posts.id
+Ref: post_tags.tag_id   > tags.id
+```
+
 ## Block-level theme override (forced dark)
 
 ```{.dbml theme="dark"}
