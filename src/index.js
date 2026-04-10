@@ -534,7 +534,7 @@ function dbmlToSvg(db) {
   });
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${svgW}" height="${svgH}" viewBox="0 0 ${svgW} ${svgH}">
-  <rect width="${svgW}" height="${svgH}" style="fill:${C.bg};"/>
+  <rect class="dbml-bg" width="${svgW}" height="${svgH}" style="fill:${C.bg};"/>
 ${defsSvg}  <g class="dbml-edges">
 ${edgesSvg}  </g>
   <g class="dbml-tables">

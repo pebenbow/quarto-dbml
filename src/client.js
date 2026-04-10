@@ -34,6 +34,46 @@ const LAYOUT_TITLES = {
   radial: 'Radial layout (most-connected table at center)',
 };
 
+// ─── Marker builders (duplicated from src/index.js for browser-side re-render) ─
+// Called whenever edge endpoints move so markers track the new position AND
+// the correct table-face direction (left vs right).
+
+function makeCrowsFootSvg(x, y, rel, gapDir, color) {
+  const s = `stroke:${color};stroke-width:1.5;stroke-linecap:round;fill:none;`;
+  const H = 7;
+  if (rel === '*') {
+    const hx = x + gapDir * 12;
+    return `<line x1="${hx}" y1="${y}" x2="${x}" y2="${y-H}" style="${s}"/>` +
+           `<line x1="${hx}" y1="${y}" x2="${x}" y2="${y+H}" style="${s}"/>` +
+           `<line x1="${x}"  y1="${y-H}" x2="${x}" y2="${y+H}" style="${s}"/>`;
+  }
+  const b1 = x + gapDir * 5, b2 = x + gapDir * 10;
+  return `<line x1="${b1}" y1="${y-H}" x2="${b1}" y2="${y+H}" style="${s}"/>` +
+         `<line x1="${b2}" y1="${y-H}" x2="${b2}" y2="${y+H}" style="${s}"/>`;
+}
+
+function makeArrowSvg(x, y, rel, gapDir, color) {
+  const H = 7;
+  if (rel === '*') {
+    const bx = x + gapDir * 12;
+    return `<polygon points="${x},${y} ${bx},${y-H} ${bx},${y+H}" style="fill:${color};stroke:none;"/>`;
+  }
+  const bx = x + gapDir * 7;
+  return `<line x1="${bx}" y1="${y-H}" x2="${bx}" y2="${y+H}" style="stroke:${color};stroke-width:1.5;stroke-linecap:round;"/>`;
+}
+
+function buildMarkerSvg(x, y, rel, gapDir, goRight, isEnd1, notation, color) {
+  if (notation === 'crowsfoot') return makeCrowsFootSvg(x, y, rel, gapDir, color);
+  if (notation === 'arrows')    return makeArrowSvg(x, y, rel, gapDir, color);
+  // uml or labels (default)
+  const label  = rel === '*' ? (notation === 'uml' ? '*' : 'N') : '1';
+  const fSize  = notation === 'uml' ? '11px' : '10px';
+  const lx     = isEnd1 ? x + (goRight ? 8 : -8) : x + (goRight ? -12 : 8);
+  const anchor = isEnd1 ? (goRight ? 'start' : 'end') : (goRight ? 'end' : 'start');
+  return `<text x="${lx}" y="${y-5}" text-anchor="${anchor}" ` +
+    `style="font-family:sans-serif;font-size:${fSize};font-weight:600;fill:${color};">${label}</text>`;
+}
+
 // ─── Path helpers ─────────────────────────────────────────────────────────────
 function orthogonalPath(x1, y1, x2, y2, radius) {
   const midX = (x1 + x2) / 2;
@@ -337,16 +377,21 @@ function rerouteEdges(svg, state) {
 
     const t1 = group.dataset.t1, t2 = group.dataset.t2;
     const fi1 = +group.dataset.fi1, fi2 = +group.dataset.fi2;
-    const routing = group.dataset.routing;
+    const routing  = group.dataset.routing;
+    const notation = group.dataset.notation || 'labels';
+    const e1rel    = group.dataset.e1Rel;
+    const e2rel    = group.dataset.e2Rel;
 
     const pos1 = state.tablePositions[t1];
     const pos2 = state.tablePositions[t2];
     if (!pos1 || !pos2) return;
 
-    // Exit side is determined by current table positions
+    // Exit side is determined by current table positions (may differ from original)
     const goRight = pos1.x <= pos2.x;
     const ex1 = goRight ? pos1.x + TW_C : pos1.x;
     const ex2 = goRight ? pos2.x         : pos2.x + TW_C;
+    const g1  = goRight ? 1 : -1;
+    const g2  = goRight ? -1 : 1;
 
     // Field center Y: use slot index in the current detail level
     const slot1 = state.tableFieldSlot[t1]?.[fi1] ?? -1;
@@ -357,13 +402,22 @@ function rerouteEdges(svg, state) {
     const d = computeEdgePath(ex1, ey1, ex2, ey2, goRight, routing);
     group.querySelectorAll('path').forEach(p => p.setAttribute('d', d));
 
-    // Translate marker groups by their Y delta from the original render position
-    const origEy1 = +group.dataset.ey1, origEy2 = +group.dataset.ey2;
-    const dy1 = ey1 - origEy1, dy2 = ey2 - origEy2;
+    // Re-render marker groups with correct coordinates AND correct exit direction.
+    // (Translating the old markers would leave them on the wrong face of the table
+    // when goRight flips — re-rendering fixes both X position and gapDir.)
+    const edgeColor = group.querySelector('.dbml-edge-path')?.style?.stroke
+      || 'var(--dbml-edge,#8ca0c0)';
+
     const m1 = group.querySelector('.dbml-marker-end-1');
     const m2 = group.querySelector('.dbml-marker-end-2');
-    if (m1) m1.setAttribute('transform', dy1 !== 0 ? `translate(0,${dy1})` : '');
-    if (m2) m2.setAttribute('transform', dy2 !== 0 ? `translate(0,${dy2})` : '');
+    if (m1) {
+      m1.removeAttribute('transform');
+      m1.innerHTML = buildMarkerSvg(ex1, ey1, e1rel, g1, goRight, true,  notation, edgeColor);
+    }
+    if (m2) {
+      m2.removeAttribute('transform');
+      m2.innerHTML = buildMarkerSvg(ex2, ey2, e2rel, g2, goRight, false, notation, edgeColor);
+    }
   });
 }
 
@@ -440,18 +494,29 @@ function setLayout(state, wrapper, svg, panZoom, layout) {
 
   rerouteEdges(svg, state);
 
-  // Expand SVG viewBox to fit the new layout extents
+  // Expand SVG viewBox and background rect to cover the new layout extents.
+  // The background rect has baked-in width/height from the renderer; update both
+  // so the fill covers the full diagram area after a layout change.
   let maxX = 0, maxY = 0;
   Object.entries(positions).forEach(([t, p]) => {
     maxX = Math.max(maxX, p.x + TW_C);
     maxY = Math.max(maxY, p.y + (state.tableData[t]?.hFull ?? 100));
   });
-  svg.setAttribute('viewBox', `0 0 ${maxX + PAD_C} ${maxY + PAD_C}`);
+  const newW = maxX + PAD_C;
+  const newH = maxY + PAD_C;
+  svg.setAttribute('viewBox', `0 0 ${newW} ${newH}`);
+  const bgRect = svg.querySelector('.dbml-bg');
+  if (bgRect) { bgRect.setAttribute('width', newW); bgRect.setAttribute('height', newH); }
 
   if (panZoom) {
-    panZoom.resize();
-    panZoom.fit();
-    panZoom.center();
+    // Defer pan-zoom reset to the next animation frame so the browser has
+    // finished processing the viewBox change before svg-pan-zoom reads the
+    // new coordinate space to reposition its control icons and fit content.
+    requestAnimationFrame(() => {
+      panZoom.resize();
+      panZoom.fit();
+      panZoom.center();
+    });
   }
 }
 
