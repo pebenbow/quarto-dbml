@@ -2,9 +2,14 @@
 --
 -- Intercepts ```dbml fenced blocks and produces:
 --   HTML  →  inline SVG with CSS-variable colours (responds to dark mode)
---   PDF   →  SVG written to a temp file + \includesvg  (requires xelatex +
---             the LaTeX `svg` package + Inkscape)
+--   PDF   →  PNG raster via @resvg/resvg-js; falls back to \includesvg
 --   Other →  inline SVG fallback
+--
+-- Theme resolution (highest → lowest priority):
+--   1. Block attribute:        ```{.dbml theme="dark"}
+--   2. Document front matter:  dbml:\n  theme: dark
+--   3. Project _quarto.yml:    dbml:\n  theme: dark   (Quarto merges this in)
+--   4. Auto (default):         follows prefers-color-scheme / Bootstrap toggle
 
 -- ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -12,9 +17,34 @@ local function script_dir()
   return pandoc.path.directory(PANDOC_SCRIPT_FILE)
 end
 
+--- Normalise a theme value; returns 'light', 'dark', or nil (= auto).
+local function normalise_theme(raw)
+  if not raw then return nil end
+  local s = pandoc.utils.stringify(raw):lower():match('^%s*(.-)%s*$')
+  if s == 'light' or s == 'dark' then return s end
+  return nil  -- treat unknown values as auto
+end
+
+--- Document-level theme (set by Meta filter below; nil = auto).
+local doc_theme = nil
+
+--- Determine the effective theme for a given code block.
+--- Returns 'light', 'dark', or nil (auto).
+local function effective_theme(block)
+  -- Block attribute wins
+  local block_raw = block.attr and block.attr.attributes and block.attr.attributes['theme']
+  local bt = normalise_theme(block_raw)
+  if bt then return bt end
+  -- Document / project metadata
+  if doc_theme then return doc_theme end
+  return nil  -- auto
+end
+
 local function render_dbml(code, theme)
   local script = pandoc.path.join({ script_dir(), 'dbml-render.js' })
   local args = { script }
+  -- For auto HTML we pass no --theme flag (defaults to CSS vars internally).
+  -- For an explicit theme, or any static output, we pass it.
   if theme then
     args[#args + 1] = '--theme=' .. theme
   end
@@ -32,14 +62,21 @@ local function error_block(msg)
   )
 end
 
--- ─── CSS (injected once into <head> for HTML output) ─────────────────────────
+-- ─── CSS ─────────────────────────────────────────────────────────────────────
 -- Variables are defined on .dbml-diagram so they cascade into the inline SVG.
--- Dark-mode overrides via both prefers-color-scheme and Quarto's Bootstrap
--- [data-bs-theme="dark"] attribute.
+--
+-- Priority (CSS cascade, high → low):
+--   .dbml-theme-light / .dbml-theme-dark  — explicit override (specificity 0,2,0)
+--   [data-bs-theme="dark"] .dbml-diagram  — Quarto Bootstrap toggle  (0,2,0, earlier)
+--   @media prefers-color-scheme: dark     — system preference         (0,1,0)
+--   .dbml-diagram                         — light defaults            (0,1,0)
+--
+-- The force-theme rules are declared last and share the highest specificity,
+-- so they win regardless of system or Bootstrap dark mode.
 
 local DBML_CSS = [[<style id="quarto-dbml-styles">
 .dbml-diagram {
-  /* Light-mode defaults */
+  /* ── Light-mode defaults ─────────────── */
   --dbml-bg:       #f7f9ff;
   --dbml-card-bg:  #ffffff;
   --dbml-border:   #c0cce4;
@@ -62,7 +99,7 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
   border: 1px solid var(--dbml-border, #c0cce4);
 }
 
-/* System dark mode */
+/* ── Auto dark: system preference ───────── */
 @media (prefers-color-scheme: dark) {
   .dbml-diagram {
     --dbml-bg:       #1a1f2e;
@@ -81,7 +118,7 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
   }
 }
 
-/* Quarto Bootstrap dark theme toggle */
+/* ── Auto dark: Quarto Bootstrap toggle ─── */
 [data-bs-theme="dark"] .dbml-diagram {
   --dbml-bg:       #1a1f2e;
   --dbml-card-bg:  #252b3b;
@@ -98,9 +135,42 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
   --dbml-edge:     #4a6080;
 }
 
-/* ── Hover interactions ─────────────────────────────────── */
+/* ── Explicit overrides (declared last → win the cascade) ── */
 
-/* Field row: highlight background on hover */
+.dbml-diagram.dbml-theme-light {
+  --dbml-bg:       #f7f9ff;
+  --dbml-card-bg:  #ffffff;
+  --dbml-border:   #c0cce4;
+  --dbml-shadow:   rgba(184,200,224,0.35);
+  --dbml-hdr-bg:   #4361a0;
+  --dbml-hdr-fg:   #ffffff;
+  --dbml-row-odd:  #f0f3fb;
+  --dbml-row-even: #ffffff;
+  --dbml-pk-fg:    #b22222;
+  --dbml-pk-bg:    rgba(178,34,34,0.15);
+  --dbml-field-fg: #1a1a2e;
+  --dbml-type-fg:  #7f8c9e;
+  --dbml-edge:     #8ca0c0;
+}
+
+.dbml-diagram.dbml-theme-dark {
+  --dbml-bg:       #1a1f2e;
+  --dbml-card-bg:  #252b3b;
+  --dbml-border:   #3a4560;
+  --dbml-shadow:   rgba(13,16,23,0.5);
+  --dbml-hdr-bg:   #2d4a8a;
+  --dbml-hdr-fg:   #e8eef8;
+  --dbml-row-odd:  #1f2535;
+  --dbml-row-even: #252b3b;
+  --dbml-pk-fg:    #e07070;
+  --dbml-pk-bg:    rgba(220,80,80,0.2);
+  --dbml-field-fg: #c8d0e4;
+  --dbml-type-fg:  #6a7a94;
+  --dbml-edge:     #4a6080;
+}
+
+/* ── Hover interactions ─────────────────── */
+
 .dbml-diagram .dbml-field-row {
   cursor: default;
 }
@@ -109,7 +179,6 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
   filter: brightness(0.91);
 }
 
-/* Relationship edge: thicken and brighten on hover */
 .dbml-diagram .dbml-edge-path {
   transition: stroke-width 0.15s ease, opacity 0.15s ease;
   cursor: pointer;
@@ -122,7 +191,6 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
 
 local html_setup_done = false
 
---- Read the bundled client script from the extension directory.
 local function client_js_tag()
   local path = pandoc.path.join({ script_dir(), 'dbml-client.js' })
   local fh = io.open(path, 'r')
@@ -132,44 +200,62 @@ local function client_js_tag()
   return '<script>' .. src .. '</script>'
 end
 
--- ─── Filter ──────────────────────────────────────────────────────────────────
+-- ─── Meta filter — reads document / project theme setting ────────────────────
+-- Runs before CodeBlock, so doc_theme is available to all block handlers.
+
+function Meta(meta)
+  if meta.dbml and meta.dbml.theme then
+    doc_theme = normalise_theme(meta.dbml.theme)
+  end
+  return meta
+end
+
+-- ─── CodeBlock filter ────────────────────────────────────────────────────────
 
 function CodeBlock(block)
   if not block.classes:includes('dbml') then
     return nil
   end
 
-  -- ── HTML ──────────────────────────────────────────────────────────────────
+  local theme = effective_theme(block)  -- 'light', 'dark', or nil (auto)
+
+  -- ── HTML ────────────────────────────────────────────────────────────────
   if FORMAT:match('html') then
-    -- Inject CSS + client JS into the document exactly once
     if not html_setup_done then
       html_setup_done = true
       quarto.doc.include_text('in-header', DBML_CSS)
       quarto.doc.include_text('after-body', client_js_tag())
     end
 
-    -- Render with CSS variable references (responds to dark mode at runtime)
-    local svg, err = render_dbml(block.text)
+    -- When an explicit theme is set, pass it to Node (so CSS vars get the
+    -- right fallback values too). Auto (nil) uses the CSS-var default path.
+    local svg, err = render_dbml(block.text, theme)
     if not svg or svg == '' then
       return error_block(err or 'empty output from renderer')
     end
 
+    -- Build wrapper class list
+    local classes = 'dbml-diagram'
+    if theme then classes = classes .. ' dbml-theme-' .. theme end
+
     return pandoc.RawBlock('html',
-      '<div class="dbml-diagram">\n' .. svg .. '\n</div>')
+      '<div class="' .. classes .. '">\n' .. svg .. '\n</div>')
   end
 
-  -- ── LaTeX / PDF ───────────────────────────────────────────────────────────
+  -- ── LaTeX / PDF ─────────────────────────────────────────────────────────
   if FORMAT:match('latex') or FORMAT:match('pdf') then
+    -- Default to light for static output; respect explicit dark override
+    local pdf_theme = theme or 'light'
     local script  = pandoc.path.join({ script_dir(), 'dbml-render.js' })
     local tmpdir  = os.getenv('TMPDIR') or os.getenv('TEMP') or '/tmp'
     math.randomseed(os.time())
     local stem    = 'dbml-' .. os.time() .. '-' .. math.random(1000, 9999)
 
-    -- ── Attempt 1: PNG via @resvg/resvg-js (no Inkscape needed) ──────────
+    -- Attempt 1: PNG via @resvg/resvg-js
     local png_path = tmpdir .. '/' .. stem .. '.png'
     local png_ok, png_err = pcall(
       pandoc.pipe, 'node',
-      { script, '--theme=light', '--output-file=' .. png_path },
+      { script, '--theme=' .. pdf_theme, '--output-file=' .. png_path },
       block.text
     )
 
@@ -183,7 +269,6 @@ function CodeBlock(block)
       end
     end
 
-    -- Warn if the failure was a missing dependency
     if type(png_err) == 'string' and png_err:find('resvg') then
       io.stderr:write(
         '[quarto-dbml] @resvg/resvg-js not found — falling back to \\includesvg.\n' ..
@@ -192,8 +277,8 @@ function CodeBlock(block)
       )
     end
 
-    -- ── Attempt 2: SVG + \includesvg (xelatex + svg LaTeX package + Inkscape) ─
-    local svg, svg_err = render_dbml(block.text, 'light')
+    -- Attempt 2: SVG + \includesvg (xelatex + svg LaTeX package + Inkscape)
+    local svg, svg_err = render_dbml(block.text, pdf_theme)
     if not svg or svg == '' then
       return error_block(svg_err or 'empty output from renderer')
     end
@@ -212,7 +297,7 @@ function CodeBlock(block)
   end
 
   -- ── Fallback ─────────────────────────────────────────────────────────────
-  local svg, err = render_dbml(block.text)
+  local svg, err = render_dbml(block.text, theme)
   if not svg or svg == '' then
     return error_block(err or 'empty output from renderer')
   end

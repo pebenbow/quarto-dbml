@@ -5,11 +5,12 @@ format:
   pdf: default
 filters:
   - quarto-dbml
+# Uncomment to force a theme for all diagrams in this document:
+# dbml:
+#   theme: dark
 ---
 
-## E-Commerce Schema
-
-The diagram below is rendered from a DBML code block.
+## Default (auto — follows system/browser preference)
 
 ```{.dbml}
 Table users {
@@ -46,4 +47,41 @@ Table products {
 Ref: orders.user_id > users.id
 Ref: order_items.order_id > orders.id
 Ref: order_items.product_id > products.id
+```
+
+## Forced light (block-level override)
+
+```{.dbml theme="light"}
+Table categories {
+  id integer [pk]
+  name varchar [not null]
+  parent_id integer
+}
+
+Table products {
+  id integer [pk]
+  category_id integer
+  name varchar [not null]
+  price decimal
+}
+
+Ref: products.category_id > categories.id
+```
+
+## Forced dark (block-level override)
+
+```{.dbml theme="dark"}
+Table sessions {
+  id varchar [pk]
+  user_id integer [not null]
+  expires_at timestamp [not null]
+  created_at timestamp
+}
+
+Table users {
+  id integer [pk]
+  email varchar [not null, unique]
+}
+
+Ref: sessions.user_id > users.id
 ```
