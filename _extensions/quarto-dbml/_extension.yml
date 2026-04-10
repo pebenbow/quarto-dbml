@@ -1,0 +1,8 @@
+name: quarto-dbml
+title: "DBML Diagram Extension"
+author: "Pete Benbow"
+version: "0.1.0"
+quarto-required: ">=1.4.0"
+contributes:
+  filters:
+    - dbml.lua

@@ -1,0 +1,49 @@
+---
+title: "quarto-dbml Example"
+format:
+  html: default
+  pdf: default
+filters:
+  - quarto-dbml
+---
+
+## E-Commerce Schema
+
+The diagram below is rendered from a DBML code block.
+
+```{.dbml}
+Table users {
+  id integer [pk, increment]
+  username varchar [not null, unique]
+  email varchar [not null]
+  created_at timestamp
+}
+
+Table orders {
+  id integer [pk, increment]
+  user_id integer [not null]
+  total decimal
+  status varchar
+  created_at timestamp
+}
+
+Table order_items {
+  id integer [pk, increment]
+  order_id integer [not null]
+  product_id integer [not null]
+  quantity integer
+  price decimal
+}
+
+Table products {
+  id integer [pk, increment]
+  name varchar [not null]
+  description text
+  price decimal
+  stock integer
+}
+
+Ref: orders.user_id > users.id
+Ref: order_items.order_id > orders.id
+Ref: order_items.product_id > products.id
+```

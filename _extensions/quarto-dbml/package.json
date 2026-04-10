@@ -1,0 +1,8 @@
+{
+  "name": "quarto-dbml-runtime",
+  "description": "Runtime dependencies for quarto-dbml. Run 'npm install' here to enable PDF output.",
+  "private": true,
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2"
+  }
+}
