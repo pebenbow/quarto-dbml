@@ -22,6 +22,7 @@
 --   2. Document front matter:  dbml:\n  notation: crowsfoot
 --   3. Project _quarto.yml:    dbml:\n  notation: crowsfoot
 --   4. Default:                labels (text "1" / "N")
+--                             Other values: crowsfoot, uml, arrows
 
 -- ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -65,13 +66,15 @@ end
 --- Document-level echo setting (set by Meta filter below; nil = use default).
 local doc_echo = nil
 
---- Normalise a notation value; returns 'crowsfoot', 'labels', or nil (= not set).
+--- Normalise a notation value; returns 'labels', 'crowsfoot', 'uml', 'arrows', or nil.
 local function normalise_notation(raw)
   if not raw then return nil end
   local s = pandoc.utils.stringify(raw):lower():match('^%s*(.-)%s*$')
   if s == 'crowsfoot' or s == 'crows-foot' or s == "crow's-foot" or s == 'crow' then
     return 'crowsfoot'
   end
+  if s == 'uml' then return 'uml' end
+  if s == 'arrows' or s == 'arrow' then return 'arrows' end
   if s == 'labels' or s == 'label' then return 'labels' end
   return nil  -- unknown value → caller uses default
 end

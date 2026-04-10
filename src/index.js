@@ -148,40 +148,53 @@ function esc(s) {
     .replace(/"/g, '&quot;');
 }
 
-// ─── Crow's foot marker ───────────────────────────────────────────────────────
+// ─── Cardinality markers ──────────────────────────────────────────────────────
 //
-// Draws a cardinality marker at a table edge connection point.
+// Each function draws a marker at a table edge connection point.
 //
 //   x, y     — the point on the table edge where the edge path starts/ends
 //   relation — '@dbml/core' endpoint relation value: '*' (many) or '1' (one)
 //   gapDir   — direction from the table edge into the gap: +1 (right) or -1 (left)
-//   color    — stroke colour string
-//
-// Many  → crow's foot: heel in the gap, two diagonal tines + vertical crossbar
-//          at the table edge. The path's own stroke forms the centre spine so no
-//          extra centre line is needed.
-//
-// One   → double bar: two short perpendicular lines in the gap, evenly spaced.
+//   color    — stroke/fill colour string
+
+// Crow's foot:
+//   Many  → heel in the gap, two diagonal tines + vertical crossbar at the table edge
+//   One   → double bar in the gap
 
 function crowsFootMarker(x, y, relation, gapDir, color) {
   const s = `stroke:${color};stroke-width:1.5;stroke-linecap:round;fill:none;`;
-  const H = 7;    // half-height of tines / bars
+  const H = 7;
 
   if (relation === '*') {
-    const hx = x + gapDir * 12;  // heel x, 12 px into the gap
+    const hx = x + gapDir * 12;
     return (
-      `  <line x1="${hx}" y1="${y}" x2="${x}" y2="${y - H}" style="${s}"/>\n` +
-      `  <line x1="${hx}" y1="${y}" x2="${x}" y2="${y + H}" style="${s}"/>\n` +
-      `  <line x1="${x}"  y1="${y - H}" x2="${x}" y2="${y + H}" style="${s}"/>\n`
+      `    <line x1="${hx}" y1="${y}" x2="${x}" y2="${y - H}" style="${s}"/>\n` +
+      `    <line x1="${hx}" y1="${y}" x2="${x}" y2="${y + H}" style="${s}"/>\n` +
+      `    <line x1="${x}"  y1="${y - H}" x2="${x}" y2="${y + H}" style="${s}"/>\n`
     );
   } else {
-    // One — double bar (implies "exactly one" in standard crow's foot)
     const b1 = x + gapDir * 5;
     const b2 = x + gapDir * 10;
     return (
-      `  <line x1="${b1}" y1="${y - H}" x2="${b1}" y2="${y + H}" style="${s}"/>\n` +
-      `  <line x1="${b2}" y1="${y - H}" x2="${b2}" y2="${y + H}" style="${s}"/>\n`
+      `    <line x1="${b1}" y1="${y - H}" x2="${b1}" y2="${y + H}" style="${s}"/>\n` +
+      `    <line x1="${b2}" y1="${y - H}" x2="${b2}" y2="${y + H}" style="${s}"/>\n`
     );
+  }
+}
+
+// Arrows:
+//   Many  → filled triangle (tip at table edge, base in the gap)
+//   One   → single bar in the gap
+
+function arrowMarker(x, y, relation, gapDir, color) {
+  const H = 7;
+
+  if (relation === '*') {
+    const bx = x + gapDir * 12;  // base of triangle, 12 px into the gap
+    return `    <polygon points="${x},${y} ${bx},${y - H} ${bx},${y + H}" style="fill:${color};stroke:none;"/>\n`;
+  } else {
+    const bx = x + gapDir * 7;   // single bar, 7 px into the gap
+    return `    <line x1="${bx}" y1="${y - H}" x2="${bx}" y2="${y + H}" style="stroke:${color};stroke-width:1.5;stroke-linecap:round;"/>\n`;
   }
 }
 
@@ -281,12 +294,24 @@ function dbmlToSvg(db) {
     // Wide transparent hit area so thin lines are easy to hover and click.
     edgesSvg += `    <path class="dbml-edge-hit" d="${d}" stroke-width="12" fill="none" stroke="transparent"/>\n`;
 
+    // gapDir: direction from the table edge into the gap (away from the table card)
+    const g1 = goRight ? 1 : -1;
+    const g2 = goRight ? -1 : 1;
+
     if (notationFlag === 'crowsfoot') {
-      // gapDir: direction from the table edge into the gap (away from the table card)
-      const g1 = goRight ? 1 : -1;   // gap direction at e1 endpoint
-      const g2 = goRight ? -1 : 1;   // gap direction at e2 endpoint
       edgesSvg += crowsFootMarker(ex1, ey1, e1.relation, g1, C.edge);
       edgesSvg += crowsFootMarker(ex2, ey2, e2.relation, g2, C.edge);
+    } else if (notationFlag === 'arrows') {
+      edgesSvg += arrowMarker(ex1, ey1, e1.relation, g1, C.edge);
+      edgesSvg += arrowMarker(ex2, ey2, e2.relation, g2, C.edge);
+    } else if (notationFlag === 'uml') {
+      // UML multiplicity: "1" and "*" (standard UML convention)
+      const umlLabel = r => r === '*' ? '*' : r === '1' ? '1' : (r ?? '');
+      const lx1 = ex1 + (goRight ? 8 : -8);
+      const lx2 = ex2 + (goRight ? -12 : 8);
+      const labelStyle = `style="font-family:sans-serif;font-size:11px;font-weight:600;fill:${C.edge};"`;
+      edgesSvg += `    <text x="${lx1}" y="${ey1-5}" text-anchor="${goRight?'start':'end'}" ${labelStyle}>${umlLabel(e1.relation)}</text>\n`;
+      edgesSvg += `    <text x="${lx2}" y="${ey2-5}" text-anchor="${goRight?'end':'start'}" ${labelStyle}>${umlLabel(e2.relation)}</text>\n`;
     } else {
       // Default: text cardinality labels ("1" / "N")
       const relLabel = r => r === '*' ? 'N' : r === '1' ? '1' : (r ?? '');

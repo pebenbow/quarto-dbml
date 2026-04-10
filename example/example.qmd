@@ -117,6 +117,58 @@ Ref: ecommerce.products.category_id > ecommerce.categories.id
 Ref cat_parent: ecommerce.categories.parent_id > ecommerce.categories.id
 ```
 
+## UML notation
+
+```{.dbml notation="uml"}
+Table users {
+  id    integer [pk, increment]
+  email varchar [not null, unique]
+}
+
+Table posts {
+  id      integer [pk, increment]
+  user_id integer [not null]
+  title   varchar [not null]
+}
+
+Table comments {
+  id      integer [pk, increment]
+  post_id integer [not null]
+  user_id integer [not null]
+  body    text    [not null]
+}
+
+Ref: posts.user_id    > users.id
+Ref: comments.post_id > posts.id
+Ref: comments.user_id > users.id
+```
+
+## Arrow notation
+
+```{.dbml notation="arrows"}
+Table users {
+  id    integer [pk, increment]
+  email varchar [not null, unique]
+}
+
+Table posts {
+  id      integer [pk, increment]
+  user_id integer [not null]
+  title   varchar [not null]
+}
+
+Table comments {
+  id      integer [pk, increment]
+  post_id integer [not null]
+  user_id integer [not null]
+  body    text    [not null]
+}
+
+Ref: posts.user_id    > users.id
+Ref: comments.post_id > posts.id
+Ref: comments.user_id > users.id
+```
+
 ## Crow's foot notation
 
 ```{.dbml notation="crowsfoot"}
