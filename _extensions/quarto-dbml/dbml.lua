@@ -10,6 +10,18 @@
 --   2. Document front matter:  dbml:\n  theme: dark
 --   3. Project _quarto.yml:    dbml:\n  theme: dark   (Quarto merges this in)
 --   4. Auto (default):         follows prefers-color-scheme / Bootstrap toggle
+--
+-- Echo resolution (highest → lowest priority):
+--   1. Block attribute:        ```{.dbml echo="true"}
+--   2. Document front matter:  dbml:\n  echo: true
+--   3. Project _quarto.yml:    dbml:\n  echo: true
+--   4. Default:                false (source is not shown)
+--
+-- Notation resolution (highest → lowest priority):
+--   1. Block attribute:        ```{.dbml notation="crowsfoot"}
+--   2. Document front matter:  dbml:\n  notation: crowsfoot
+--   3. Project _quarto.yml:    dbml:\n  notation: crowsfoot
+--   4. Default:                labels (text "1" / "N")
 
 -- ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -40,13 +52,71 @@ local function effective_theme(block)
   return nil  -- auto
 end
 
-local function render_dbml(code, theme)
+--- Normalise an echo value; returns true, false, or nil (= not set).
+local function normalise_echo(raw)
+  if type(raw) == 'boolean' then return raw end
+  if not raw then return nil end
+  local s = pandoc.utils.stringify(raw):lower():match('^%s*(.-)%s*$')
+  if s == 'true' or s == 'yes' or s == '1' then return true end
+  if s == 'false' or s == 'no' or s == '0' then return false end
+  return nil
+end
+
+--- Document-level echo setting (set by Meta filter below; nil = use default).
+local doc_echo = nil
+
+--- Normalise a notation value; returns 'crowsfoot', 'labels', or nil (= not set).
+local function normalise_notation(raw)
+  if not raw then return nil end
+  local s = pandoc.utils.stringify(raw):lower():match('^%s*(.-)%s*$')
+  if s == 'crowsfoot' or s == 'crows-foot' or s == "crow's-foot" or s == 'crow' then
+    return 'crowsfoot'
+  end
+  if s == 'labels' or s == 'label' then return 'labels' end
+  return nil  -- unknown value → caller uses default
+end
+
+--- Document-level notation setting (set by Meta filter below; nil = use default).
+local doc_notation = nil
+
+--- Determine whether to echo the source for a given code block.
+--- Returns true or false.
+local function effective_echo(block)
+  -- Block attribute wins
+  local block_raw = block.attr and block.attr.attributes and block.attr.attributes['echo']
+  if block_raw ~= nil then
+    local v = normalise_echo(block_raw)
+    if v ~= nil then return v end
+  end
+  -- Document / project metadata
+  if doc_echo ~= nil then return doc_echo end
+  return false  -- default: don't show source
+end
+
+--- Determine the effective notation for a given code block.
+--- Returns 'crowsfoot', 'labels', or nil (= use renderer default).
+local function effective_notation(block)
+  -- Block attribute wins
+  local block_raw = block.attr and block.attr.attributes and block.attr.attributes['notation']
+  if block_raw ~= nil then
+    local v = normalise_notation(block_raw)
+    if v ~= nil then return v end
+  end
+  -- Document / project metadata
+  if doc_notation ~= nil then return doc_notation end
+  return nil  -- let the renderer use its default ('labels')
+end
+
+local function render_dbml(code, theme, notation)
   local script = pandoc.path.join({ script_dir(), 'dbml-render.js' })
   local args = { script }
   -- For auto HTML we pass no --theme flag (defaults to CSS vars internally).
   -- For an explicit theme, or any static output, we pass it.
   if theme then
     args[#args + 1] = '--theme=' .. theme
+  end
+  if notation then
+    args[#args + 1] = '--notation=' .. notation
   end
   local ok, result = pcall(pandoc.pipe, 'node', args, code)
   if ok then return result, nil end
@@ -77,19 +147,20 @@ end
 local DBML_CSS = [[<style id="quarto-dbml-styles">
 .dbml-diagram {
   /* ── Light-mode defaults ─────────────── */
-  --dbml-bg:       #f7f9ff;
-  --dbml-card-bg:  #ffffff;
-  --dbml-border:   #c0cce4;
-  --dbml-shadow:   rgba(184,200,224,0.35);
-  --dbml-hdr-bg:   #4361a0;
-  --dbml-hdr-fg:   #ffffff;
-  --dbml-row-odd:  #f0f3fb;
-  --dbml-row-even: #ffffff;
-  --dbml-pk-fg:    #b22222;
-  --dbml-pk-bg:    rgba(178,34,34,0.15);
-  --dbml-field-fg: #1a1a2e;
-  --dbml-type-fg:  #7f8c9e;
-  --dbml-edge:     #8ca0c0;
+  --dbml-bg:          #f7f9ff;
+  --dbml-card-bg:     #ffffff;
+  --dbml-border:      #c0cce4;
+  --dbml-shadow:      rgba(184,200,224,0.35);
+  --dbml-hdr-bg:      #4361a0;
+  --dbml-hdr-fg:      #ffffff;
+  --dbml-row-odd:     #f0f3fb;
+  --dbml-row-even:    #ffffff;
+  --dbml-pk-fg:       #b22222;
+  --dbml-pk-bg:       rgba(178,34,34,0.15);
+  --dbml-field-fg:    #1a1a2e;
+  --dbml-type-fg:     #7f8c9e;
+  --dbml-edge:        #8ca0c0;
+  --dbml-edge-active: #3a6bc8;
 
   position: relative;
   overflow: hidden;
@@ -102,74 +173,78 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
 /* ── Auto dark: system preference ───────── */
 @media (prefers-color-scheme: dark) {
   .dbml-diagram {
-    --dbml-bg:       #1a1f2e;
-    --dbml-card-bg:  #252b3b;
-    --dbml-border:   #3a4560;
-    --dbml-shadow:   rgba(13,16,23,0.5);
-    --dbml-hdr-bg:   #2d4a8a;
-    --dbml-hdr-fg:   #e8eef8;
-    --dbml-row-odd:  #1f2535;
-    --dbml-row-even: #252b3b;
-    --dbml-pk-fg:    #e07070;
-    --dbml-pk-bg:    rgba(220,80,80,0.2);
-    --dbml-field-fg: #c8d0e4;
-    --dbml-type-fg:  #6a7a94;
-    --dbml-edge:     #4a6080;
+    --dbml-bg:          #1a1f2e;
+    --dbml-card-bg:     #252b3b;
+    --dbml-border:      #3a4560;
+    --dbml-shadow:      rgba(13,16,23,0.5);
+    --dbml-hdr-bg:      #2d4a8a;
+    --dbml-hdr-fg:      #e8eef8;
+    --dbml-row-odd:     #1f2535;
+    --dbml-row-even:    #252b3b;
+    --dbml-pk-fg:       #e07070;
+    --dbml-pk-bg:       rgba(220,80,80,0.2);
+    --dbml-field-fg:    #c8d0e4;
+    --dbml-type-fg:     #6a7a94;
+    --dbml-edge:        #4a6080;
+    --dbml-edge-active: #7ba8f0;
   }
 }
 
 /* ── Auto dark: Quarto Bootstrap toggle ─── */
 [data-bs-theme="dark"] .dbml-diagram {
-  --dbml-bg:       #1a1f2e;
-  --dbml-card-bg:  #252b3b;
-  --dbml-border:   #3a4560;
-  --dbml-shadow:   rgba(13,16,23,0.5);
-  --dbml-hdr-bg:   #2d4a8a;
-  --dbml-hdr-fg:   #e8eef8;
-  --dbml-row-odd:  #1f2535;
-  --dbml-row-even: #252b3b;
-  --dbml-pk-fg:    #e07070;
-  --dbml-pk-bg:    rgba(220,80,80,0.2);
-  --dbml-field-fg: #c8d0e4;
-  --dbml-type-fg:  #6a7a94;
-  --dbml-edge:     #4a6080;
+  --dbml-bg:          #1a1f2e;
+  --dbml-card-bg:     #252b3b;
+  --dbml-border:      #3a4560;
+  --dbml-shadow:      rgba(13,16,23,0.5);
+  --dbml-hdr-bg:      #2d4a8a;
+  --dbml-hdr-fg:      #e8eef8;
+  --dbml-row-odd:     #1f2535;
+  --dbml-row-even:    #252b3b;
+  --dbml-pk-fg:       #e07070;
+  --dbml-pk-bg:       rgba(220,80,80,0.2);
+  --dbml-field-fg:    #c8d0e4;
+  --dbml-type-fg:     #6a7a94;
+  --dbml-edge:        #4a6080;
+  --dbml-edge-active: #7ba8f0;
 }
 
 /* ── Explicit overrides (declared last → win the cascade) ── */
 
 .dbml-diagram.dbml-theme-light {
-  --dbml-bg:       #f7f9ff;
-  --dbml-card-bg:  #ffffff;
-  --dbml-border:   #c0cce4;
-  --dbml-shadow:   rgba(184,200,224,0.35);
-  --dbml-hdr-bg:   #4361a0;
-  --dbml-hdr-fg:   #ffffff;
-  --dbml-row-odd:  #f0f3fb;
-  --dbml-row-even: #ffffff;
-  --dbml-pk-fg:    #b22222;
-  --dbml-pk-bg:    rgba(178,34,34,0.15);
-  --dbml-field-fg: #1a1a2e;
-  --dbml-type-fg:  #7f8c9e;
-  --dbml-edge:     #8ca0c0;
+  --dbml-bg:          #f7f9ff;
+  --dbml-card-bg:     #ffffff;
+  --dbml-border:      #c0cce4;
+  --dbml-shadow:      rgba(184,200,224,0.35);
+  --dbml-hdr-bg:      #4361a0;
+  --dbml-hdr-fg:      #ffffff;
+  --dbml-row-odd:     #f0f3fb;
+  --dbml-row-even:    #ffffff;
+  --dbml-pk-fg:       #b22222;
+  --dbml-pk-bg:       rgba(178,34,34,0.15);
+  --dbml-field-fg:    #1a1a2e;
+  --dbml-type-fg:     #7f8c9e;
+  --dbml-edge:        #8ca0c0;
+  --dbml-edge-active: #3a6bc8;
 }
 
 .dbml-diagram.dbml-theme-dark {
-  --dbml-bg:       #1a1f2e;
-  --dbml-card-bg:  #252b3b;
-  --dbml-border:   #3a4560;
-  --dbml-shadow:   rgba(13,16,23,0.5);
-  --dbml-hdr-bg:   #2d4a8a;
-  --dbml-hdr-fg:   #e8eef8;
-  --dbml-row-odd:  #1f2535;
-  --dbml-row-even: #252b3b;
-  --dbml-pk-fg:    #e07070;
-  --dbml-pk-bg:    rgba(220,80,80,0.2);
-  --dbml-field-fg: #c8d0e4;
-  --dbml-type-fg:  #6a7a94;
-  --dbml-edge:     #4a6080;
+  --dbml-bg:          #1a1f2e;
+  --dbml-card-bg:     #252b3b;
+  --dbml-border:      #3a4560;
+  --dbml-shadow:      rgba(13,16,23,0.5);
+  --dbml-hdr-bg:      #2d4a8a;
+  --dbml-hdr-fg:      #e8eef8;
+  --dbml-row-odd:     #1f2535;
+  --dbml-row-even:    #252b3b;
+  --dbml-pk-fg:       #e07070;
+  --dbml-pk-bg:       rgba(220,80,80,0.2);
+  --dbml-field-fg:    #c8d0e4;
+  --dbml-type-fg:     #6a7a94;
+  --dbml-edge:        #4a6080;
+  --dbml-edge-active: #7ba8f0;
 }
 
-/* ── Hover interactions ─────────────────── */
+/* ── Field-row hover ────────────────────── */
 
 .dbml-diagram .dbml-field-row {
   cursor: default;
@@ -179,13 +254,92 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
   filter: brightness(0.91);
 }
 
-.dbml-diagram .dbml-edge-path {
-  transition: stroke-width 0.15s ease, opacity 0.15s ease;
+/* ── Edge group: hover & click-to-select ── */
+
+.dbml-diagram .dbml-edge-group {
   cursor: pointer;
 }
-.dbml-diagram .dbml-edge-path:hover {
-  stroke-width: 3px;
-  opacity: 1 !important;
+
+/* stroke-width and opacity are presentation attributes in the SVG so CSS
+   selectors can override them here without needing !important. */
+.dbml-diagram .dbml-edge-group:hover .dbml-edge-path,
+.dbml-diagram .dbml-edge-group.dbml-edge-selected .dbml-edge-path {
+  stroke-width: 3;
+  opacity: 1;
+}
+
+/* ── Flow animation overlay ─────────────── */
+
+.dbml-diagram .dbml-edge-flow {
+  pointer-events: none;
+  transition: opacity 0.15s ease;
+}
+
+/* Reveal the dashed overlay on hover or when locked (selected) */
+.dbml-diagram .dbml-edge-group:hover .dbml-edge-flow,
+.dbml-diagram .dbml-edge-group.dbml-edge-selected .dbml-edge-flow {
+  opacity: 1;
+  animation: dbml-flow-fwd 0.7s linear infinite;
+}
+
+/* Reverse direction for edges where the "one" end is at the path tail */
+.dbml-diagram .dbml-edge-group[data-flow-dir="reverse"]:hover .dbml-edge-flow,
+.dbml-diagram .dbml-edge-group[data-flow-dir="reverse"].dbml-edge-selected .dbml-edge-flow {
+  animation: dbml-flow-rev 0.7s linear infinite;
+}
+
+/* ── Highlight-all mode (button toggle) ─── */
+
+.dbml-diagram.dbml-highlight-all .dbml-edge-path {
+  stroke-width: 3;
+  opacity: 1;
+}
+.dbml-diagram.dbml-highlight-all .dbml-edge-flow {
+  opacity: 1;
+  animation: dbml-flow-fwd 0.7s linear infinite;
+}
+.dbml-diagram.dbml-highlight-all .dbml-edge-group[data-flow-dir="reverse"] .dbml-edge-flow {
+  animation: dbml-flow-rev 0.7s linear infinite;
+}
+
+@keyframes dbml-flow-fwd {
+  from { stroke-dashoffset: 14; }
+  to   { stroke-dashoffset: 0;  }
+}
+@keyframes dbml-flow-rev {
+  from { stroke-dashoffset: 0;  }
+  to   { stroke-dashoffset: 14; }
+}
+
+/* ── Toggle button ──────────────────────── */
+
+.dbml-diagram .dbml-toggle-btn {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  z-index: 20;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--dbml-border, #c0cce4);
+  border-radius: 6px;
+  background: var(--dbml-card-bg, #ffffff);
+  color: var(--dbml-edge, #8ca0c0);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+.dbml-diagram .dbml-toggle-btn:hover {
+  opacity: 1;
+}
+.dbml-diagram .dbml-toggle-btn[aria-pressed="true"] {
+  background: var(--dbml-hdr-bg, #4361a0);
+  border-color: var(--dbml-hdr-bg, #4361a0);
+  color: var(--dbml-hdr-fg, #ffffff);
+  opacity: 1;
 }
 </style>]]
 
@@ -204,8 +358,16 @@ end
 -- Runs before CodeBlock, so doc_theme is available to all block handlers.
 
 function Meta(meta)
-  if meta.dbml and meta.dbml.theme then
-    doc_theme = normalise_theme(meta.dbml.theme)
+  if meta.dbml then
+    if meta.dbml.theme then
+      doc_theme = normalise_theme(meta.dbml.theme)
+    end
+    if meta.dbml.echo ~= nil then
+      doc_echo = normalise_echo(meta.dbml.echo)
+    end
+    if meta.dbml.notation then
+      doc_notation = normalise_notation(meta.dbml.notation)
+    end
   end
   return meta
 end
@@ -217,7 +379,16 @@ function CodeBlock(block)
     return nil
   end
 
-  local theme = effective_theme(block)  -- 'light', 'dark', or nil (auto)
+  local theme      = effective_theme(block)    -- 'light', 'dark', or nil (auto)
+  local show_echo  = effective_echo(block)     -- true or false
+  local notation   = effective_notation(block) -- 'crowsfoot', 'labels', or nil
+
+  --- Optionally prepend the DBML source as a styled code block.
+  local function with_echo(diagram_block)
+    if not show_echo then return diagram_block end
+    local source = pandoc.CodeBlock(block.text, pandoc.Attr('', { 'dbml' }, {}))
+    return pandoc.Blocks({ source, diagram_block })
+  end
 
   -- ── HTML ────────────────────────────────────────────────────────────────
   if FORMAT:match('html') then
@@ -229,7 +400,7 @@ function CodeBlock(block)
 
     -- When an explicit theme is set, pass it to Node (so CSS vars get the
     -- right fallback values too). Auto (nil) uses the CSS-var default path.
-    local svg, err = render_dbml(block.text, theme)
+    local svg, err = render_dbml(block.text, theme, notation)
     if not svg or svg == '' then
       return error_block(err or 'empty output from renderer')
     end
@@ -238,8 +409,8 @@ function CodeBlock(block)
     local classes = 'dbml-diagram'
     if theme then classes = classes .. ' dbml-theme-' .. theme end
 
-    return pandoc.RawBlock('html',
-      '<div class="' .. classes .. '">\n' .. svg .. '\n</div>')
+    return with_echo(pandoc.RawBlock('html',
+      '<div class="' .. classes .. '">\n' .. svg .. '\n</div>'))
   end
 
   -- ── LaTeX / PDF ─────────────────────────────────────────────────────────
@@ -253,19 +424,17 @@ function CodeBlock(block)
 
     -- Attempt 1: PNG via @resvg/resvg-js
     local png_path = tmpdir .. '/' .. stem .. '.png'
-    local png_ok, png_err = pcall(
-      pandoc.pipe, 'node',
-      { script, '--theme=' .. pdf_theme, '--output-file=' .. png_path },
-      block.text
-    )
+    local png_args = { script, '--theme=' .. pdf_theme, '--output-file=' .. png_path }
+    if notation then png_args[#png_args + 1] = '--notation=' .. notation end
+    local png_ok, png_err = pcall(pandoc.pipe, 'node', png_args, block.text)
 
     if png_ok then
       local f = io.open(png_path, 'rb')
       if f then
         f:close()
-        return pandoc.Para({
+        return with_echo(pandoc.Para({
           pandoc.Image({}, png_path, '', pandoc.Attr('', {}, { width = '100%' }))
-        })
+        }))
       end
     end
 
@@ -278,7 +447,7 @@ function CodeBlock(block)
     end
 
     -- Attempt 2: SVG + \includesvg (xelatex + svg LaTeX package + Inkscape)
-    local svg, svg_err = render_dbml(block.text, pdf_theme)
+    local svg, svg_err = render_dbml(block.text, pdf_theme, notation)
     if not svg or svg == '' then
       return error_block(svg_err or 'empty output from renderer')
     end
@@ -292,14 +461,14 @@ function CodeBlock(block)
     fh:close()
 
     local latex_path = svg_path:gsub('\\', '/')
-    return pandoc.RawBlock('latex',
-      '\\includesvg[width=\\linewidth]{' .. latex_path .. '}')
+    return with_echo(pandoc.RawBlock('latex',
+      '\\includesvg[width=\\linewidth]{' .. latex_path .. '}'))
   end
 
   -- ── Fallback ─────────────────────────────────────────────────────────────
-  local svg, err = render_dbml(block.text, theme)
+  local svg, err = render_dbml(block.text, theme, notation)
   if not svg or svg == '' then
     return error_block(err or 'empty output from renderer')
   end
-  return pandoc.RawBlock('html', svg)
+  return with_echo(pandoc.RawBlock('html', svg))
 end

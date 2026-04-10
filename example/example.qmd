@@ -14,7 +14,7 @@ dbml:
 A multi-schema DBML diagram demonstrating tables, enums, indexes, notes,
 inline refs, named refs, and cross-schema relationships.
 
-```{.dbml}
+```{.dbml theme="light"}
 // ── Enums ────────────────────────────────────────────────
 Enum order_status {
   pending
@@ -115,6 +115,49 @@ Ref: ecommerce.order_items.order_id > ecommerce.orders.id
 Ref: ecommerce.order_items.product_id > ecommerce.products.id
 Ref: ecommerce.products.category_id > ecommerce.categories.id
 Ref cat_parent: ecommerce.categories.parent_id > ecommerce.categories.id
+```
+
+## Crow's foot notation
+
+```{.dbml notation="crowsfoot"}
+Table users {
+  id    integer [pk, increment]
+  email varchar [not null, unique]
+}
+
+Table posts {
+  id      integer [pk, increment]
+  user_id integer [not null]
+  title   varchar [not null]
+}
+
+Table comments {
+  id      integer [pk, increment]
+  post_id integer [not null]
+  user_id integer [not null]
+  body    text    [not null]
+}
+
+Ref: posts.user_id    > users.id
+Ref: comments.post_id > posts.id
+Ref: comments.user_id > users.id
+```
+
+## Echo: show DBML source alongside the diagram
+
+```{.dbml echo="true"}
+Table users {
+  id    integer [pk, increment]
+  email varchar [not null, unique]
+}
+
+Table posts {
+  id      integer [pk, increment]
+  user_id integer [not null]
+  title   varchar [not null]
+}
+
+Ref: posts.user_id > users.id
 ```
 
 ## Block-level theme override (forced dark)

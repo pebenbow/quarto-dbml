@@ -5,3 +5,4 @@ _extensions/quarto-dbml/dbml-client.js
 *.pdf
 
 /.quarto/
+example/example_files/
