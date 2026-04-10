@@ -5,83 +5,139 @@ format:
   pdf: default
 filters:
   - quarto-dbml
-# Uncomment to force a theme for all diagrams in this document:
-# dbml:
-#   theme: dark
+dbml:
+  theme: light
 ---
 
-## Default (auto — follows system/browser preference)
+## E-Commerce Schema
+
+A multi-schema DBML diagram demonstrating tables, enums, indexes, notes,
+inline refs, named refs, and cross-schema relationships.
 
 ```{.dbml}
-Table users {
-  id integer [pk, increment]
-  username varchar [not null, unique]
-  email varchar [not null]
-  created_at timestamp
+// ── Enums ────────────────────────────────────────────────
+Enum order_status {
+  pending
+  processing
+  shipped
+  delivered
+  cancelled [note: 'Soft delete — row is retained']
 }
 
-Table orders {
-  id integer [pk, increment]
-  user_id integer [not null]
-  total decimal
-  status varchar
-  created_at timestamp
+Enum product_status {
+  active
+  discontinued
+  out_of_stock
 }
 
-Table order_items {
-  id integer [pk, increment]
-  order_id integer [not null]
-  product_id integer [not null]
-  quantity integer
-  price decimal
+// ── public schema ─────────────────────────────────────────
+Table public.users {
+  id        integer     [pk, increment]
+  email     varchar     [not null, unique]
+  full_name varchar
+  role      varchar     [default: 'customer']
+  created_at timestamp  [not null]
+
+  Note: 'Registered application users'
+
+  Indexes {
+    email       [unique, name: 'uq_users_email']
+    created_at  [name: 'idx_users_created']
+  }
 }
 
-Table products {
-  id integer [pk, increment]
-  name varchar [not null]
+Table public.addresses {
+  id         integer  [pk, increment]
+  user_id    integer  [not null]
+  line1      varchar  [not null]
+  line2      varchar
+  city       varchar  [not null]
+  country    varchar(2) [not null]
+  is_default boolean  [default: false]
+}
+
+// ── ecommerce schema ──────────────────────────────────────
+Table ecommerce.products {
+  id          integer               [pk, increment]
+  name        varchar               [not null]
   description text
-  price decimal
-  stock integer
-}
-
-Ref: orders.user_id > users.id
-Ref: order_items.order_id > orders.id
-Ref: order_items.product_id > products.id
-```
-
-## Forced light (block-level override)
-
-```{.dbml theme="light"}
-Table categories {
-  id integer [pk]
-  name varchar [not null]
-  parent_id integer
-}
-
-Table products {
-  id integer [pk]
+  price       decimal(10,2)         [not null]
+  status      product_status        [default: 'active']
   category_id integer
-  name varchar [not null]
-  price decimal
+  created_at  timestamp             [default: `now()`]
+
+  Indexes {
+    (status, category_id)  [name: 'idx_products_status_cat']
+    name                   [name: 'idx_products_name']
+  }
 }
 
-Ref: products.category_id > categories.id
+Table ecommerce.categories {
+  id        integer  [pk, increment]
+  name      varchar  [not null, unique]
+  parent_id integer
+
+  Note: 'Self-referencing for nested categories'
+}
+
+Table ecommerce.orders {
+  id          integer       [pk, increment]
+  user_id     integer       [not null]
+  address_id  integer       [not null]
+  status      order_status  [default: 'pending']
+  total       decimal(10,2) [not null]
+  note        text
+  created_at  timestamp     [default: `now()`]
+
+  Indexes {
+    user_id    [name: 'idx_orders_user']
+    status     [name: 'idx_orders_status']
+  }
+}
+
+Table ecommerce.order_items {
+  id         integer       [pk, increment]
+  order_id   integer       [not null]
+  product_id integer       [not null]
+  quantity   integer       [not null]
+  unit_price decimal(10,2) [not null]
+
+  Indexes {
+    (order_id, product_id) [unique, name: 'uq_order_items']
+  }
+}
+
+// ── Relationships ─────────────────────────────────────────
+Ref: public.addresses.user_id > public.users.id
+Ref: ecommerce.orders.user_id > public.users.id
+Ref: ecommerce.orders.address_id > public.addresses.id
+Ref: ecommerce.order_items.order_id > ecommerce.orders.id
+Ref: ecommerce.order_items.product_id > ecommerce.products.id
+Ref: ecommerce.products.category_id > ecommerce.categories.id
+Ref cat_parent: ecommerce.categories.parent_id > ecommerce.categories.id
 ```
 
-## Forced dark (block-level override)
+## Block-level theme override (forced dark)
 
 ```{.dbml theme="dark"}
 Table sessions {
-  id varchar [pk]
-  user_id integer [not null]
-  expires_at timestamp [not null]
-  created_at timestamp
+  id         varchar    [pk, note: 'UUID']
+  user_id    integer    [not null]
+  ip_address varchar
+  user_agent text
+  expires_at timestamp  [not null]
+  created_at timestamp  [default: `now()`]
+
+  Indexes {
+    user_id    [name: 'idx_sessions_user']
+    expires_at [name: 'idx_sessions_expiry']
+  }
 }
 
-Table users {
-  id integer [pk]
-  email varchar [not null, unique]
+Table public.users {
+  id    integer  [pk, increment]
+  email varchar  [not null, unique]
 }
 
-Ref: sessions.user_id > users.id
+Ref: sessions.user_id > public.users.id
 ```

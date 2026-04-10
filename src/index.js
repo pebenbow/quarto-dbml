@@ -103,7 +103,22 @@ process.stdin.on('end', () => {
       process.stdout.write(svg);
     }
   } catch (e) {
-    process.stderr.write('quarto-dbml: ' + e.message + '\n');
+    // @dbml/core throws { diags: [{message, location, ...}] } rather than
+    // a standard Error, so e.message is undefined. Extract the diagnostics.
+    let msg;
+    if (Array.isArray(e.diags) && e.diags.length > 0) {
+      msg = e.diags
+        .map(d => {
+          const loc = d.location
+            ? ` (line ${d.location.start?.line ?? '?'})`
+            : '';
+          return (d.message || JSON.stringify(d)) + loc;
+        })
+        .join('\n  ');
+    } else {
+      msg = (e instanceof Error ? e.message : String(e)) || 'unknown parse error';
+    }
+    process.stderr.write('quarto-dbml parse error:\n  ' + msg + '\n');
     process.exit(1);
   }
 });
