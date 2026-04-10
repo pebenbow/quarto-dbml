@@ -61,6 +61,12 @@ function updateDetailLevel(wrapper, level) {
   const svg = wrapper.querySelector('svg');
   if (!svg) return;
 
+  // Keep the wrapper class in sync so CSS hiding rules don't fight JS.
+  // (CSS `.dbml-level-keys .dbml-field-row[data-field-type="regular"]` would
+  //  override any inline `display:""` set by JS if the old class stays on.)
+  DETAIL_LEVELS.forEach(l => wrapper.classList.remove('dbml-level-' + l));
+  wrapper.classList.add('dbml-level-' + level);
+
   // Track the new center-Y for each table's field rows after repositioning.
   // Used for edge endpoint recalculation.
   const tableFieldCenterY = {};  // tableName → { origIndex: newCenterY }
@@ -116,6 +122,9 @@ function updateDetailLevel(wrapper, level) {
 
   // ── Recalculate edge paths ─────────────────────────────────────────────────
   svg.querySelectorAll('.dbml-edge-group').forEach(group => {
+    // Skip edge groups that were rendered in static mode (no interactive data attrs).
+    if (!group.dataset.ex1) return;
+
     const t1      = group.dataset.t1;
     const t2      = group.dataset.t2;
     const fi1     = +group.dataset.fi1;

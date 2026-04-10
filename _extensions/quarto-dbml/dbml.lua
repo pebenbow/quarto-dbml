@@ -524,11 +524,15 @@ function CodeBlock(block)
       quarto.doc.include_text('after-body', client_js_tag())
     end
 
-    -- When an explicit theme is set, pass it to Node (so CSS vars get the
-    -- right fallback values too). Auto (nil) uses the CSS-var default path.
-    -- Level is NOT passed to the renderer for HTML — all fields are always
-    -- rendered so the browser can toggle between levels interactively.
-    local svg, err = render_dbml(block.text, theme, notation, routing, nil)
+    -- For HTML output, always render with CSS vars (interactive mode) regardless
+    -- of any explicit theme setting. Theme is enforced purely through the wrapper
+    -- CSS class (.dbml-theme-light / .dbml-theme-dark), which overrides the CSS
+    -- custom properties at runtime. Passing a hardcoded theme to the renderer
+    -- would suppress the interactive data attributes (clipPaths, data-* on edges
+    -- and table groups) that the browser JS requires.
+    -- Level is also NOT passed — all fields are rendered so the browser can
+    -- toggle between levels interactively.
+    local svg, err = render_dbml(block.text, nil, notation, routing, nil)
     if not svg or svg == '' then
       return error_block(err or 'empty output from renderer')
     end
