@@ -424,6 +424,7 @@ function dbmlToSvg(db) {
       tablesSvg +=
         `  <g class="dbml-table"` +
         ` data-table-name="${esc(tbl.name)}"` +
+        ` data-x="${x}" data-y="${y}"` +
         ` data-base-y="${y + TH}"` +
         ` data-header-y="${y + TH / 2}"` +
         ` data-h-full="${hFull}"` +

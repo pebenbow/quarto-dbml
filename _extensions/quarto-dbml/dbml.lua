@@ -149,6 +149,31 @@ local function effective_routing(block)
   return nil  -- let the renderer use its default ('smooth')
 end
 
+--- Normalise a layout value; returns 'grid', 'lr', 'tb', 'radial', or nil.
+local function normalise_layout(raw)
+  if not raw then return nil end
+  local s = pandoc.utils.stringify(raw):lower():match('^%s*(.-)%s*$')
+  if s == 'grid' then return 'grid' end
+  if s == 'lr' or s == 'left-right' or s == 'left_right' then return 'lr' end
+  if s == 'tb' or s == 'top-bottom' or s == 'top_bottom' then return 'tb' end
+  if s == 'radial' or s == 'center' or s == 'star' or s == 'snowflake' then return 'radial' end
+  return nil
+end
+
+--- Document-level layout setting.
+local doc_layout = nil
+
+--- Determine the effective layout for a given code block.
+local function effective_layout(block)
+  local block_raw = block.attr and block.attr.attributes and block.attr.attributes['layout']
+  if block_raw ~= nil then
+    local v = normalise_layout(block_raw)
+    if v ~= nil then return v end
+  end
+  if doc_layout ~= nil then return doc_layout end
+  return nil
+end
+
 --- Normalise a level value; returns 'full', 'keys', 'names', or nil.
 local function normalise_level(raw)
   if not raw then return nil end
@@ -449,6 +474,40 @@ local DBML_CSS = [[<style id="quarto-dbml-styles">
   opacity: 1;
 }
 
+/* ── Layout button ──────────────────────── */
+
+.dbml-diagram .dbml-layout-btn {
+  position: absolute;
+  top: 8px;
+  left: 80px;
+  z-index: 20;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--dbml-border, #c0cce4);
+  border-radius: 6px;
+  background: var(--dbml-card-bg, #ffffff);
+  color: var(--dbml-edge, #8ca0c0);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.7;
+  transition: opacity 0.15s, background 0.15s, color 0.15s, border-color 0.15s;
+}
+.dbml-diagram .dbml-layout-btn:hover {
+  opacity: 1;
+}
+.dbml-diagram .dbml-layout-btn.dbml-layout-active {
+  background: var(--dbml-hdr-bg, #4361a0);
+  border-color: var(--dbml-hdr-bg, #4361a0);
+  color: var(--dbml-hdr-fg, #ffffff);
+  opacity: 1;
+}
+
 /* ── Detail level: hide field rows ─────── */
 
 /* keys mode: hide regular (non-key) field rows */
@@ -492,6 +551,9 @@ function Meta(meta)
     if meta.dbml.level then
       doc_level = normalise_level(meta.dbml.level)
     end
+    if meta.dbml.layout then
+      doc_layout = normalise_layout(meta.dbml.layout)
+    end
   end
   return meta
 end
@@ -508,6 +570,7 @@ function CodeBlock(block)
   local notation   = effective_notation(block) -- 'crowsfoot', 'labels', 'uml', 'arrows', or nil
   local routing    = effective_routing(block)  -- 'smooth', 'orthogonal', 'rounded', or nil
   local level      = effective_level(block)    -- 'full', 'keys', 'names', or nil
+  local layout     = effective_layout(block)   -- 'grid', 'lr', 'tb', 'radial', or nil
 
   --- Optionally prepend the DBML source as a styled code block.
   local function with_echo(diagram_block)
@@ -537,15 +600,15 @@ function CodeBlock(block)
       return error_block(err or 'empty output from renderer')
     end
 
-    -- Build wrapper class list
-    local classes = 'dbml-diagram'
+    -- Build wrapper class and data attributes
+    local classes    = 'dbml-diagram'
     if theme then classes = classes .. ' dbml-theme-' .. theme end
-    -- Always include a level class; 'full' is the default if not set
-    local eff_level = level or 'full'
+    local eff_level  = level  or 'full'
+    local eff_layout = layout or 'grid'
     classes = classes .. ' dbml-level-' .. eff_level
 
     return with_echo(pandoc.RawBlock('html',
-      '<div class="' .. classes .. '">\n' .. svg .. '\n</div>'))
+      '<div class="' .. classes .. '" data-layout="' .. eff_layout .. '">\n' .. svg .. '\n</div>'))
   end
 
   -- ── LaTeX / PDF ─────────────────────────────────────────────────────────

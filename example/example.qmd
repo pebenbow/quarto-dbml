@@ -380,6 +380,161 @@ Ref: post_tags.post_id  > posts.id
 Ref: post_tags.tag_id   > tags.id
 ```
 
+## Auto-arrange layouts
+
+Use the **Grd** button (third from top-left) to cycle through layout modes:
+**Grid → LR → TB → Ctr → Grid**.
+
+- **Grd** — original grid (default)
+- **LR** — left-right hierarchical: dimension/master tables on the left, fact/transaction tables on the right
+- **TB** — top-bottom hierarchical: same logic, vertically
+- **Ctr** — radial: most-connected table at center, others in concentric rings
+
+### Single-fact data warehouse (star/snowflake schema)
+
+Fact table has four direct dimension relationships; two dimensions share a
+sub-dimension (`dim_region`), making this a snowflake. **Ctr** mode should
+place `fact_orders` at the center with dimension tables ringing it.
+
+```{.dbml}
+Table fact_orders {
+  order_key    integer      [pk]
+  date_key     integer      [not null]
+  customer_key integer      [not null]
+  product_key  integer      [not null]
+  store_key    integer      [not null]
+  quantity     integer      [not null]
+  revenue      decimal(12,2)
+  discount     decimal(5,2)
+}
+
+Table dim_date {
+  date_key    integer [pk]
+  full_date   date
+  year        integer
+  quarter     integer
+  month       integer
+  day_of_week varchar
+}
+
+Table dim_product {
+  product_key integer      [pk]
+  name        varchar      [not null]
+  sku         varchar      [unique]
+  category    varchar
+  brand       varchar
+  unit_cost   decimal(10,2)
+}
+
+Table dim_customer {
+  customer_key integer [pk]
+  name         varchar [not null]
+  email        varchar
+  segment      varchar
+  region_key   integer [not null]
+}
+
+Table dim_store {
+  store_key  integer [pk]
+  name       varchar [not null]
+  city       varchar
+  region_key integer [not null]
+}
+
+Table dim_region {
+  region_key integer [pk]
+  name       varchar [not null]
+  country    varchar [not null]
+}
+
+Ref: fact_orders.date_key     > dim_date.date_key
+Ref: fact_orders.customer_key > dim_customer.customer_key
+Ref: fact_orders.product_key  > dim_product.product_key
+Ref: fact_orders.store_key    > dim_store.store_key
+Ref: dim_customer.region_key  > dim_region.region_key
+Ref: dim_store.region_key     > dim_region.region_key
+```
+
+### Multi-fact data warehouse with shared dimensions
+
+Two fact tables (`fact_sales`, `fact_inventory`) share dimension tables.
+`dim_region` is a sub-dimension (snowflake arm). `config_thresholds` is
+entirely unrelated — in **LR** mode it should land at the far right; in
+**Ctr** mode it should appear in the outermost ring.
+
+```{.dbml}
+Table fact_sales {
+  sale_key     integer      [pk]
+  date_key     integer      [not null]
+  product_key  integer      [not null]
+  customer_key integer      [not null]
+  store_key    integer      [not null]
+  quantity     integer
+  revenue      decimal(12,2)
+}
+
+Table fact_inventory {
+  snapshot_key integer [pk]
+  date_key     integer [not null]
+  product_key  integer [not null]
+  store_key    integer [not null]
+  units_on_hand integer
+  units_ordered integer
+}
+
+Table dim_date {
+  date_key  integer [pk]
+  full_date date
+  year      integer
+  quarter   integer
+  month     integer
+}
+
+Table dim_product {
+  product_key integer      [pk]
+  name        varchar
+  category    varchar
+  unit_cost   decimal(10,2)
+}
+
+Table dim_customer {
+  customer_key integer [pk]
+  name         varchar
+  segment      varchar
+  region_key   integer [not null]
+}
+
+Table dim_store {
+  store_key  integer [pk]
+  name       varchar
+  region_key integer [not null]
+}
+
+Table dim_region {
+  region_key integer [pk]
+  name       varchar
+  country    varchar
+}
+
+Table config_thresholds {
+  id          integer [pk, increment]
+  metric_name varchar [not null, unique]
+  warn_value  decimal(12,2)
+  crit_value  decimal(12,2)
+  updated_at  timestamp
+}
+
+Ref: fact_sales.date_key        > dim_date.date_key
+Ref: fact_sales.product_key     > dim_product.product_key
+Ref: fact_sales.customer_key    > dim_customer.customer_key
+Ref: fact_sales.store_key       > dim_store.store_key
+Ref: fact_inventory.date_key    > dim_date.date_key
+Ref: fact_inventory.product_key > dim_product.product_key
+Ref: fact_inventory.store_key   > dim_store.store_key
+Ref: dim_customer.region_key    > dim_region.region_key
+Ref: dim_store.region_key       > dim_region.region_key
+```
+
 ## Block-level theme override (forced dark)
 
 ```{.dbml theme="dark"}
