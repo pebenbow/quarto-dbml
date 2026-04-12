@@ -39,6 +39,12 @@ const LIGHT = {
   typeFg:     '#7f8c9e',
   edge:       '#8ca0c0',
   edgeActive: '#3a6bc8',
+  fkFg:       '#1558b0',
+  fkBg:       'rgba(21,88,176,0.12)',
+  unFg:       '#9a5700',
+  unBg:       'rgba(154,87,0,0.12)',
+  nnFg:       '#2e7d32',
+  nnBg:       'rgba(46,125,50,0.12)',
 };
 
 const DARK = {
@@ -56,6 +62,12 @@ const DARK = {
   typeFg:     '#6a7a94',
   edge:       '#4a6080',
   edgeActive: '#7ba8f0',
+  fkFg:       '#74b0f4',
+  fkBg:       'rgba(116,176,244,0.2)',
+  unFg:       '#e9a020',
+  unBg:       'rgba(233,160,32,0.2)',
+  nnFg:       '#66bb6a',
+  nnBg:       'rgba(102,187,106,0.2)',
 };
 
 // For HTML mode: CSS custom property references with LIGHT fallbacks.
@@ -74,6 +86,12 @@ const CSS_VARS = {
   typeFg:     'var(--dbml-type-fg,#7f8c9e)',
   edge:       'var(--dbml-edge,#8ca0c0)',
   edgeActive: 'var(--dbml-edge-active,#3a6bc8)',
+  fkFg:       'var(--dbml-fk-fg,#1558b0)',
+  fkBg:       'var(--dbml-fk-bg,rgba(21,88,176,0.12))',
+  unFg:       'var(--dbml-un-fg,#9a5700)',
+  unBg:       'var(--dbml-un-bg,rgba(154,87,0,0.12))',
+  nnFg:       'var(--dbml-nn-fg,#2e7d32)',
+  nnBg:       'var(--dbml-nn-bg,rgba(46,125,50,0.12))',
 };
 
 const C = themeFlag === 'dark' ? DARK : themeFlag === 'light' ? LIGHT : CSS_VARS;
@@ -232,12 +250,36 @@ function dbmlToSvg(db) {
     });
   });
 
-  /** 'pk' | 'fk' | 'regular' */
+  /** 'pk' | 'fk' | 'regular' — used for detail-level CSS filtering only */
   const getFieldType = (tbl, field) => {
     if (field.pk) return 'pk';
     if (fkFields[tbl.name]?.has(field.name)) return 'fk';
     return 'regular';
   };
+
+  const BADGE_W = 22, BADGE_H = 12, BADGE_GAP = 4;
+
+  /** Ordered badge descriptors for a field: PK, FK, UN, NN. */
+  function getBadges(tbl, field) {
+    const isFk = fkFields[tbl.name]?.has(field.name);
+    const b = [];
+    if (field.pk)                    b.push({ label: 'PK', fg: C.pkFg, bg: C.pkBg });
+    if (isFk)                        b.push({ label: 'FK', fg: C.fkFg, bg: C.fkBg });
+    if (field.unique   && !field.pk) b.push({ label: 'UN', fg: C.unFg, bg: C.unBg });
+    if (field.not_null && !field.pk) b.push({ label: 'NN', fg: C.nnFg, bg: C.nnBg });
+    return b;
+  }
+
+  /** Renders badge pill rects + labels; returns svg string and field-name X position. */
+  function renderBadges(badges, x, fy, indent) {
+    let svg = '', bx = x + 8;
+    badges.forEach(b => {
+      svg += `${indent}<rect x="${bx}" y="${fy + 7}" width="${BADGE_W}" height="${BADGE_H}" rx="3" style="fill:${b.bg};pointer-events:none;"/>\n`;
+      svg += `${indent}<text x="${bx + BADGE_W / 2}" y="${fy + FH / 2 + 5}" text-anchor="middle" style="font-family:sans-serif;font-size:8px;font-weight:700;fill:${b.fg};pointer-events:none;">${b.label}</text>\n`;
+      bx += BADGE_W + BADGE_GAP;
+    });
+    return { svg, nameX: badges.length > 0 ? bx + 4 : x + 12 };
+  }
 
   // HTML mode always renders all fields so the browser can toggle between levels.
   // Static modes (light/dark/pdf) render only the requested subset.
@@ -446,23 +488,17 @@ function dbmlToSvg(db) {
       // Fields — all rows, clipped to rounded card boundary
       tablesSvg += `    <g clip-path="url(#${cpId})">\n`;
       tbl.fields.forEach((field, fi) => {
-        const fy  = y + TH + fi * FH;
-        const bg  = fi % 2 === 0 ? C.rowOdd : C.rowEven;
-        const ft  = getFieldType(tbl, field);
-        const isPk = ft === 'pk';
+        const fy       = y + TH + fi * FH;
+        const bg       = fi % 2 === 0 ? C.rowOdd : C.rowEven;
+        const ft       = getFieldType(tbl, field);
+        const isPk     = field.pk;
         const typeName = field.type?.type_name ?? '';
+        const badges   = getBadges(tbl, field);
 
         tablesSvg += `      <g class="dbml-field-row" data-field-type="${ft}" data-orig-index="${fi}">\n`;
         tablesSvg += `        <rect x="${x}" y="${fy}" width="${w}" height="${FH}" style="fill:${bg};"/>\n`;
-
-        if (isPk) {
-          tablesSvg += `        <rect x="${x+8}" y="${fy+7}" width="22" height="12" rx="3" style="fill:${C.pkBg};pointer-events:none;"/>\n`;
-          tablesSvg +=
-            `        <text x="${x+19}" y="${fy+FH/2+5}" text-anchor="middle" ` +
-            `style="font-family:sans-serif;font-size:8px;font-weight:700;fill:${C.pkFg};pointer-events:none;">PK</text>\n`;
-        }
-
-        const nameX = isPk ? x + 38 : x + 12;
+        const { svg: bSvg, nameX } = renderBadges(badges, x, fy, '        ');
+        tablesSvg += bSvg;
         tablesSvg +=
           `        <text x="${nameX}" y="${fy+FH/2+5}" ` +
           `style="font-family:${FONT};font-size:12px;font-weight:${isPk?'600':'400'};fill:${isPk?C.pkFg:C.fieldFg};pointer-events:none;">${esc(field.name)}</text>\n`;
@@ -492,12 +528,13 @@ function dbmlToSvg(db) {
         `style="font-family:${FONT};font-size:13px;font-weight:600;fill:${C.hdrFg};pointer-events:none;">${esc(tbl.name)}</text>\n`;
 
       fieldsToRender.forEach((field, fi) => {
-        const fy     = y + TH + fi * FH;
-        const isLast = fi === fieldsToRender.length - 1;
-        const bg     = fi % 2 === 0 ? C.rowOdd : C.rowEven;
-        const ft     = getFieldType(tbl, field);
-        const isPk   = ft === 'pk';
+        const fy       = y + TH + fi * FH;
+        const isLast   = fi === fieldsToRender.length - 1;
+        const bg       = fi % 2 === 0 ? C.rowOdd : C.rowEven;
+        const ft       = getFieldType(tbl, field);
+        const isPk     = field.pk;
         const typeName = field.type?.type_name ?? '';
+        const badges   = getBadges(tbl, field);
 
         tablesSvg += `  <g class="dbml-field-row">\n`;
 
@@ -509,14 +546,8 @@ function dbmlToSvg(db) {
           tablesSvg += `    <rect x="${x}" y="${fy}" width="${w}" height="${FH}" style="fill:${bg};"/>\n`;
         }
 
-        if (isPk) {
-          tablesSvg += `    <rect x="${x+8}" y="${fy+7}" width="22" height="12" rx="3" style="fill:${C.pkBg};pointer-events:none;"/>\n`;
-          tablesSvg +=
-            `    <text x="${x+19}" y="${fy+FH/2+5}" text-anchor="middle" ` +
-            `style="font-family:sans-serif;font-size:8px;font-weight:700;fill:${C.pkFg};pointer-events:none;">PK</text>\n`;
-        }
-
-        const nameX = isPk ? x + 38 : x + 12;
+        const { svg: bSvg, nameX } = renderBadges(badges, x, fy, '    ');
+        tablesSvg += bSvg;
         tablesSvg +=
           `    <text x="${nameX}" y="${fy+FH/2+5}" ` +
           `style="font-family:${FONT};font-size:12px;font-weight:${isPk?'600':'400'};fill:${isPk?C.pkFg:C.fieldFg};pointer-events:none;">${esc(field.name)}</text>\n`;

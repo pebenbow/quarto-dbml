@@ -9,6 +9,43 @@ dbml:
   theme: light
 ---
 
+## Field constraint badges (PK, FK, UN, NN)
+
+Column-level constraints are shown as coloured pill badges to the left of the
+field name.  **PK** (red) marks primary keys; **FK** (blue) marks foreign key
+columns; **UN** (amber) marks unique constraints; **NN** (green) marks explicit
+`NOT NULL` constraints.  PK columns suppress UN and NN badges because those
+constraints are implied.
+
+```{.dbml echo="true"}
+Table customers {
+  id         integer  [pk, increment]
+  email      varchar  [not null, unique]
+  username   varchar  [unique]
+  phone      varchar  [not null]
+  created_at timestamp
+}
+
+Table orders {
+  id          integer      [pk, increment]
+  customer_id integer      [not null]
+  status      varchar      [not null]
+  total       decimal(10,2)
+}
+
+Table order_items {
+  id         integer      [pk, increment]
+  order_id   integer      [not null]
+  product_id integer      [not null]
+  quantity   integer      [not null]
+  unit_price decimal(10,2) [not null]
+}
+
+Ref: orders.customer_id      > customers.id
+Ref: order_items.order_id    > orders.id
+Ref: order_items.product_id  > orders.id
+```
+
 ## E-Commerce Schema
 
 A multi-schema DBML diagram demonstrating tables, enums, indexes, notes,
