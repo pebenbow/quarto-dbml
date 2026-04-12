@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE language SYSTEM "language.dtd">
+<!--
+  KDE syntax definition for DBML (Database Markup Language)
+  Used by Pandoc's built-in highlighter for {.dbml echo="true"} blocks.
+  Reference: https://dbml.dbdiagram.io/docs/
+-->
+<language name="dbml" section="Database" version="1" kateversion="5.62"
+          extensions="*.dbml" mimetype="text/x-dbml"
+          author="Pete Benbow" license="MIT">
+  <highlighting>
+
+    <!-- ── Keyword lists ───────────────────────────────────────── -->
+
+    <!-- Top-level DBML constructs -->
+    <list name="toplevel">
+      <item>Table</item>
+      <item>Ref</item>
+      <item>Enum</item>
+      <item>TableGroup</item>
+      <item>Project</item>
+    </list>
+
+    <!-- Block-level keywords inside Table / Enum bodies -->
+    <list name="block-kw">
+      <item>Note</item>
+      <item>Indexes</item>
+    </list>
+
+    <!-- SQL data types (common across PostgreSQL, MySQL, SQLite, SQL Server) -->
+    <list name="types">
+      <!-- Integer -->
+      <item>integer</item>
+      <item>int</item>
+      <item>bigint</item>
+      <item>smallint</item>
+      <item>tinyint</item>
+      <item>mediumint</item>
+      <item>serial</item>
+      <item>bigserial</item>
+      <item>smallserial</item>
+      <!-- String -->
+      <item>varchar</item>
+      <item>char</item>
+      <item>nchar</item>
+      <item>nvarchar</item>
+      <item>text</item>
+      <item>string</item>
+      <item>clob</item>
+      <!-- Boolean -->
+      <item>boolean</item>
+      <item>bool</item>
+      <!-- Numeric -->
+      <item>decimal</item>
+      <item>numeric</item>
+      <item>float</item>
+      <item>double</item>
+      <item>real</item>
+      <item>money</item>
+      <item>smallmoney</item>
+      <!-- Temporal -->
+      <item>timestamp</item>
+      <item>timestamptz</item>
+      <item>date</item>
+      <item>time</item>
+      <item>timetz</item>
+      <item>datetime</item>
+      <item>datetime2</item>
+      <item>interval</item>
+      <!-- UUID / JSON / Binary -->
+      <item>uuid</item>
+      <item>json</item>
+      <item>jsonb</item>
+      <item>bytea</item>
+      <item>binary</item>
+      <item>varbinary</item>
+      <item>blob</item>
+      <item>bit</item>
+      <item>varbit</item>
+      <!-- Geometric (PostgreSQL) -->
+      <item>point</item>
+      <item>line</item>
+      <item>polygon</item>
+      <item>geometry</item>
+    </list>
+
+    <!-- Field constraint keywords (valid inside [...] blocks) -->
+    <list name="constraints">
+      <item>pk</item>
+      <item>increment</item>
+      <item>unique</item>
+      <item>not</item>
+      <item>null</item>
+      <item>default</item>
+      <item>note</item>
+      <item>ref</item>
+      <item>primary</item>
+      <item>key</item>
+      <item>name</item>
+      <item>type</item>
+      <!-- Referential actions (used in ref: [...]) -->
+      <item>delete</item>
+      <item>update</item>
+      <item>cascade</item>
+      <item>restrict</item>
+      <item>set</item>
+    </list>
+
+    <!-- Boolean literals -->
+    <list name="booleans">
+      <item>true</item>
+      <item>false</item>
+    </list>
+
+    <!-- ── Contexts (state machine) ────────────────────────────── -->
+
+    <contexts>
+
+      <!-- Normal: top-level, inside Table/Enum bodies, and field rows -->
+      <context name="Normal" attribute="Normal Text" lineEndContext="#stay">
+        <!-- Comments -->
+        <Detect2Chars attribute="Comment" context="LineComment"  char="/" char1="/"/>
+        <Detect2Chars attribute="Comment" context="BlockComment" char="/" char1="*"/>
+        <!-- Strings -->
+        <DetectChar   attribute="String"  context="SingleString" char="'"/>
+        <DetectChar   attribute="String"  context="BacktickExpr" char="`"/>
+        <!-- Field attribute block -->
+        <DetectChar   attribute="Bracket" context="FieldAttrs"   char="["/>
+        <!-- Keywords (order matters: check toplevel before block-kw, types last) -->
+        <keyword attribute="Keyword"      context="#stay" String="toplevel"/>
+        <keyword attribute="Block Keyword" context="#stay" String="block-kw"/>
+        <keyword attribute="Data Type"    context="#stay" String="types"/>
+        <!-- Ref cardinality operators: <>, >, <, - -->
+        <StringDetect attribute="Operator" context="#stay" String="&lt;&gt;"/>
+        <AnyChar      attribute="Operator" context="#stay" String="&gt;&lt;-:"/>
+      </context>
+
+      <!-- // single-line comment -->
+      <context name="LineComment" attribute="Comment" lineEndContext="#pop">
+        <LineContinue attribute="Comment" context="#stay"/>
+      </context>
+
+      <!-- /* multi-line comment */ -->
+      <context name="BlockComment" attribute="Comment" lineEndContext="#stay">
+        <Detect2Chars attribute="Comment" context="#pop" char="*" char1="/"/>
+      </context>
+
+      <!-- 'single-quoted string' — used for default values, notes, enum annotations -->
+      <context name="SingleString" attribute="String" lineEndContext="#stay">
+        <Detect2Chars attribute="String" context="#stay" char="\" char1="'"/>
+        <DetectChar   attribute="String" context="#pop"  char="'"/>
+      </context>
+
+      <!-- `backtick expression` — used for SQL function defaults, e.g. `now()` -->
+      <context name="BacktickExpr" attribute="String" lineEndContext="#stay">
+        <DetectChar attribute="String" context="#pop" char="`"/>
+      </context>
+
+      <!-- [...] field attribute block, e.g. [pk, not null, default: 'active'] -->
+      <context name="FieldAttrs" attribute="Normal Text" lineEndContext="#stay">
+        <DetectChar   attribute="Bracket"     context="#pop"       char="]"/>
+        <Detect2Chars attribute="Comment"     context="LineComment" char="/" char1="/"/>
+        <DetectChar   attribute="String"      context="SingleString" char="'"/>
+        <DetectChar   attribute="String"      context="BacktickExpr" char="`"/>
+        <keyword      attribute="Constraint"  context="#stay" String="constraints"/>
+        <keyword      attribute="Value"       context="#stay" String="booleans"/>
+        <!-- Ref operators and punctuation inside attrs -->
+        <AnyChar      attribute="Operator"    context="#stay" String="&gt;&lt;-:."/>
+      </context>
+
+    </contexts>
+
+    <!-- ── Style → Pandoc default style mapping ────────────────── -->
+
+    <itemDatas>
+      <itemData name="Normal Text"   defStyleNum="dsNormal"    spellChecking="false"/>
+      <itemData name="Keyword"       defStyleNum="dsKeyword"   spellChecking="false"/>
+      <itemData name="Block Keyword" defStyleNum="dsBuiltIn"   spellChecking="false"/>
+      <itemData name="Data Type"     defStyleNum="dsDataType"  spellChecking="false"/>
+      <itemData name="Constraint"    defStyleNum="dsAttribute" spellChecking="false"/>
+      <itemData name="String"        defStyleNum="dsString"    spellChecking="false"/>
+      <itemData name="Comment"       defStyleNum="dsComment"   spellChecking="false"/>
+      <itemData name="Operator"      defStyleNum="dsOperator"  spellChecking="false"/>
+      <itemData name="Bracket"       defStyleNum="dsBracket"   spellChecking="false"/>
+      <itemData name="Value"         defStyleNum="dsConstant"  spellChecking="false"/>
+    </itemDatas>
+
+  </highlighting>
+</language>
