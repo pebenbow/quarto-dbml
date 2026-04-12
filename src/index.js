@@ -169,25 +169,31 @@ function esc(s) {
 
 // ─── Cardinality markers ──────────────────────────────────────────────────────
 
-// Crow's foot:  Many → heel + tines + crossbar;  One → double bar
-function crowsFootMarker(x, y, relation, gapDir, color) {
+// Crow's foot notation with mandatory/optional modality.
+// Reading outward from the entity (card edge at x, line extends in gapDir direction):
+//   +4  → modality:    | bar (mandatory)  or  o circle (optional)
+//   +7  → tine roots   (many end only)
+//   +12 → cardinality: | bar (one end)
+//   +14 → crow's foot heel (many end)
+function crowsFootMarker(x, y, relation, gapDir, mandatory, color) {
   const s = `stroke:${color};stroke-width:1.5;stroke-linecap:round;fill:none;`;
   const H = 7;
+
+  const mdx = x + gapDir * 4;
+  const mod = mandatory
+    ? `<line x1="${mdx}" y1="${y - H}" x2="${mdx}" y2="${y + H}" style="${s}"/>`
+    : `<circle cx="${mdx}" cy="${y}" r="3.5" style="${s}"/>`;
+
   if (relation === '*') {
-    const hx = x + gapDir * 12;
-    return (
-      `<line x1="${hx}" y1="${y}" x2="${x}" y2="${y - H}" style="${s}"/>` +
-      `<line x1="${hx}" y1="${y}" x2="${x}" y2="${y + H}" style="${s}"/>` +
-      `<line x1="${x}"  y1="${y - H}" x2="${x}" y2="${y + H}" style="${s}"/>`
-    );
-  } else {
-    const b1 = x + gapDir * 5;
-    const b2 = x + gapDir * 10;
-    return (
-      `<line x1="${b1}" y1="${y - H}" x2="${b1}" y2="${y + H}" style="${s}"/>` +
-      `<line x1="${b2}" y1="${y - H}" x2="${b2}" y2="${y + H}" style="${s}"/>`
-    );
+    const hx = x + gapDir * 14;  // heel
+    const tx = x + gapDir * 7;   // tine root
+    return mod +
+      `<line x1="${hx}" y1="${y}" x2="${tx}" y2="${y - H}" style="${s}"/>` +
+      `<line x1="${hx}" y1="${y}" x2="${tx}" y2="${y + H}" style="${s}"/>`;
   }
+
+  const bx = x + gapDir * 12;
+  return mod + `<line x1="${bx}" y1="${y - H}" x2="${bx}" y2="${y + H}" style="${s}"/>`;
 }
 
 // Arrows:  Many → filled triangle;  One → single bar
@@ -379,6 +385,13 @@ function dbmlToSvg(db) {
       ey2 = vfi2 >= 0 ? p2.y + TH + vfi2 * FH + FH / 2 : p2.y + TH / 2;
     }
 
+    // Mandatory = the FK (many-side) field has NOT NULL or is itself a PK.
+    // For one-to-one refs we use e1's field. PK implies NOT NULL.
+    const fkEp    = (e1.relation === '*') ? e1 : (e2.relation === '*') ? e2 : e1;
+    const fkTbl   = tables.find(t => t.name === fkEp.tableName);
+    const fkField = fkTbl?.fields.find(f => f.name === (fkEp.fieldNames?.[0] ?? ''));
+    const mandatory = !!(fkField?.not_null || fkField?.pk);
+
     const goRight = p1.x <= p2.x;
     const ex1 = goRight ? p1.x + TW : p1.x;
     const ex2 = goRight ? p2.x      : p2.x + TW;
@@ -404,7 +417,8 @@ function dbmlToSvg(db) {
         ` data-fi1="${fi1}" data-fi2="${fi2}"` +
         ` data-routing="${routingFlag}" data-go-right="${goRight ? 1 : 0}"` +
         ` data-e1-rel="${esc(e1.relation ?? '')}" data-e2-rel="${esc(e2.relation ?? '')}"` +
-        ` data-notation="${notationFlag}"`;
+        ` data-notation="${notationFlag}"` +
+        ` data-mandatory="${mandatory ? 1 : 0}"`;
     }
 
     edgesSvg += `  <g class="dbml-edge-group" data-flow-dir="${flowDir}"${edgeDataAttrs}>\n`;
@@ -419,7 +433,7 @@ function dbmlToSvg(db) {
     // when edge endpoints move during level switching.
     edgesSvg += `    <g class="dbml-marker-end-1">\n`;
     if (notationFlag === 'crowsfoot') {
-      edgesSvg += '      ' + crowsFootMarker(ex1, ey1, e1.relation, g1, C.edge) + '\n';
+      edgesSvg += '      ' + crowsFootMarker(ex1, ey1, e1.relation, g1, mandatory, C.edge) + '\n';
     } else if (notationFlag === 'arrows') {
       edgesSvg += '      ' + arrowMarker(ex1, ey1, e1.relation, g1, C.edge) + '\n';
     } else if (notationFlag === 'uml') {
@@ -435,7 +449,7 @@ function dbmlToSvg(db) {
 
     edgesSvg += `    <g class="dbml-marker-end-2">\n`;
     if (notationFlag === 'crowsfoot') {
-      edgesSvg += '      ' + crowsFootMarker(ex2, ey2, e2.relation, g2, C.edge) + '\n';
+      edgesSvg += '      ' + crowsFootMarker(ex2, ey2, e2.relation, g2, mandatory, C.edge) + '\n';
     } else if (notationFlag === 'arrows') {
       edgesSvg += '      ' + arrowMarker(ex2, ey2, e2.relation, g2, C.edge) + '\n';
     } else if (notationFlag === 'uml') {

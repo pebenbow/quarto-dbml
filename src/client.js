@@ -38,18 +38,21 @@ const LAYOUT_TITLES = {
 // Called whenever edge endpoints move so markers track the new position AND
 // the correct table-face direction (left vs right).
 
-function makeCrowsFootSvg(x, y, rel, gapDir, color) {
+function makeCrowsFootSvg(x, y, rel, gapDir, mandatory, color) {
   const s = `stroke:${color};stroke-width:1.5;stroke-linecap:round;fill:none;`;
   const H = 7;
+  const mdx = x + gapDir * 4;
+  const mod = mandatory
+    ? `<line x1="${mdx}" y1="${y-H}" x2="${mdx}" y2="${y+H}" style="${s}"/>`
+    : `<circle cx="${mdx}" cy="${y}" r="3.5" style="${s}"/>`;
   if (rel === '*') {
-    const hx = x + gapDir * 12;
-    return `<line x1="${hx}" y1="${y}" x2="${x}" y2="${y-H}" style="${s}"/>` +
-           `<line x1="${hx}" y1="${y}" x2="${x}" y2="${y+H}" style="${s}"/>` +
-           `<line x1="${x}"  y1="${y-H}" x2="${x}" y2="${y+H}" style="${s}"/>`;
+    const hx = x + gapDir * 14, tx = x + gapDir * 7;
+    return mod +
+      `<line x1="${hx}" y1="${y}" x2="${tx}" y2="${y-H}" style="${s}"/>` +
+      `<line x1="${hx}" y1="${y}" x2="${tx}" y2="${y+H}" style="${s}"/>`;
   }
-  const b1 = x + gapDir * 5, b2 = x + gapDir * 10;
-  return `<line x1="${b1}" y1="${y-H}" x2="${b1}" y2="${y+H}" style="${s}"/>` +
-         `<line x1="${b2}" y1="${y-H}" x2="${b2}" y2="${y+H}" style="${s}"/>`;
+  const bx = x + gapDir * 12;
+  return mod + `<line x1="${bx}" y1="${y-H}" x2="${bx}" y2="${y+H}" style="${s}"/>`;
 }
 
 function makeArrowSvg(x, y, rel, gapDir, color) {
@@ -62,8 +65,8 @@ function makeArrowSvg(x, y, rel, gapDir, color) {
   return `<line x1="${bx}" y1="${y-H}" x2="${bx}" y2="${y+H}" style="stroke:${color};stroke-width:1.5;stroke-linecap:round;"/>`;
 }
 
-function buildMarkerSvg(x, y, rel, gapDir, goRight, isEnd1, notation, color) {
-  if (notation === 'crowsfoot') return makeCrowsFootSvg(x, y, rel, gapDir, color);
+function buildMarkerSvg(x, y, rel, gapDir, goRight, isEnd1, notation, mandatory, color) {
+  if (notation === 'crowsfoot') return makeCrowsFootSvg(x, y, rel, gapDir, mandatory, color);
   if (notation === 'arrows')    return makeArrowSvg(x, y, rel, gapDir, color);
   // uml or labels (default)
   const label  = rel === '*' ? (notation === 'uml' ? '*' : 'N') : '1';
@@ -377,10 +380,11 @@ function rerouteEdges(svg, state) {
 
     const t1 = group.dataset.t1, t2 = group.dataset.t2;
     const fi1 = +group.dataset.fi1, fi2 = +group.dataset.fi2;
-    const routing  = group.dataset.routing;
-    const notation = group.dataset.notation || 'labels';
-    const e1rel    = group.dataset.e1Rel;
-    const e2rel    = group.dataset.e2Rel;
+    const routing   = group.dataset.routing;
+    const notation  = group.dataset.notation || 'labels';
+    const e1rel     = group.dataset.e1Rel;
+    const e2rel     = group.dataset.e2Rel;
+    const mandatory = group.dataset.mandatory === '1';
 
     const pos1 = state.tablePositions[t1];
     const pos2 = state.tablePositions[t2];
@@ -412,11 +416,11 @@ function rerouteEdges(svg, state) {
     const m2 = group.querySelector('.dbml-marker-end-2');
     if (m1) {
       m1.removeAttribute('transform');
-      m1.innerHTML = buildMarkerSvg(ex1, ey1, e1rel, g1, goRight, true,  notation, edgeColor);
+      m1.innerHTML = buildMarkerSvg(ex1, ey1, e1rel, g1, goRight, true,  notation, mandatory, edgeColor);
     }
     if (m2) {
       m2.removeAttribute('transform');
-      m2.innerHTML = buildMarkerSvg(ex2, ey2, e2rel, g2, goRight, false, notation, edgeColor);
+      m2.innerHTML = buildMarkerSvg(ex2, ey2, e2rel, g2, goRight, false, notation, mandatory, edgeColor);
     }
   });
 }

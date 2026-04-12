@@ -258,30 +258,38 @@ Ref: comments.post_id > posts.id
 Ref: comments.user_id > users.id
 ```
 
-## Crow's foot notation
+## Crow's foot notation — mandatory vs optional
 
-```{.dbml notation="crowsfoot"}
-Table users {
+Modality is inferred from the FK column's `NOT NULL` constraint.
+A **bar** (`|`) indicates mandatory (NOT NULL); a **circle** (`o`) indicates
+optional (nullable).  Reading outward from the entity: modality first,
+then cardinality.
+
+- `||` — mandatory one (every child row must have exactly one parent)
+- `o|` — optional one (FK is nullable; parent may be absent)
+- `|<` — mandatory many (at least one child required / FK is NOT NULL)
+- `o<` — optional many (zero or more children; FK is nullable)
+
+```{.dbml notation="crowsfoot" echo="true"}
+Table customers {
   id    integer [pk, increment]
-  email varchar [not null, unique]
+  name  varchar [not null]
 }
 
-Table posts {
-  id      integer [pk, increment]
-  user_id integer [not null]
-  title   varchar [not null]
+Table orders {
+  id          integer [pk, increment]
+  customer_id integer [not null]   // mandatory FK → ||  and  |<
+  coupon_id   integer              // nullable FK  → o|  and  o<
+  total       decimal(10,2) [not null]
 }
 
-Table comments {
-  id      integer [pk, increment]
-  post_id integer [not null]
-  user_id integer [not null]
-  body    text    [not null]
+Table coupons {
+  id   integer [pk, increment]
+  code varchar [not null, unique]
 }
 
-Ref: posts.user_id    > users.id
-Ref: comments.post_id > posts.id
-Ref: comments.user_id > users.id
+Ref: orders.customer_id > customers.id
+Ref: orders.coupon_id   > coupons.id
 ```
 
 ## Echo: show DBML source alongside the diagram
